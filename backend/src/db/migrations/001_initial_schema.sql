@@ -152,7 +152,7 @@ CREATE TABLE api_usage (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_api_usage_user_month ON api_usage(user_id, date_trunc('month', created_at));
+CREATE INDEX idx_api_usage_user_month ON api_usage(user_id, created_at);
 
 -- ─── Updated-at trigger ───────────────────────────────────────────────────────
 

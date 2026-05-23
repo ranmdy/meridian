@@ -72,6 +72,10 @@ export async function strategyRoutes(
     if (!quote) {
       return reply.status(404).send({ error: 'No bridge quote available' });
     }
-    return reply.send(quote);
+    return reply.send({
+      ...quote,
+      amountIn: quote.amountIn.toString(),
+      amountOut: quote.amountOut.toString(),
+    });
   });
 }
