@@ -3,7 +3,6 @@ import type {
   ProtocolEdge,
   Route,
   RouteStep,
-  ScoredEdge,
   StrategyRequest,
 } from './types.js';
 
