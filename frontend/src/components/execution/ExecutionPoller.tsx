@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { api } from '@/lib/api';
-import type { ExecutionStatus } from '@/lib/api';
+import { api } from '@/src/lib/api';
+import type { ExecutionStatus } from '@/src/lib/api';
 import { StepTracker } from './StepTracker';
 
 interface ExecutionPollerProps {

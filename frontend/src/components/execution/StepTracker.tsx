@@ -1,6 +1,6 @@
 'use client';
 
-import type { ExecutionStatus, StepStatus } from '@/lib/api';
+import type { ExecutionStatus, StepStatus } from '@/src/lib/api';
 
 interface StepTrackerProps {
   status: ExecutionStatus;
