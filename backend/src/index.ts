@@ -45,8 +45,6 @@ fastify.get('/ws/strategy/:strategyId', { websocket: true }, (socket, req) => {
 
   fastify.log.info(`WS client connected for strategy ${strategyId}`);
 
-  const unsubscribe = relayerManager.onStatusUpdate.bind(relayerManager);
-
   const listener = (sid: string, job: unknown) => {
     if (sid === strategyId) {
       socket.send(JSON.stringify({ type: 'status_update', data: job }));
