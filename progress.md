@@ -104,6 +104,7 @@
 
 ### 0.6 Testnet Deployment
 
+- [x] Deploy all contracts to Anvil local node (chain 31337) — Router, Registry, Vault
 - [ ] Deploy all contracts to Sepolia (Ethereum testnet)
 - [ ] Deploy all contracts to Base Sepolia
 - [ ] Deploy backend API to staging environment
@@ -118,69 +119,69 @@
 
 ### 1.1 Destination Wallet Verification Flow
 
-- [ ] Implement `verifyDestination()` in smart contract (ECDSA + EIP-191)
-- [ ] Implement verification message standard:
+- [x] Implement `verifyDestination()` in smart contract (ECDSA + EIP-191)
+- [x] Implement verification message standard:
   `"Meridian destination verification\nI confirm this wallet is mine: {address}"`
 - [ ] Implement frontend flow: prompt user to sign with destination wallet
 - [ ] Implement backend validation: verify signature before submitting strategy
-- [ ] Enforce on-chain: reject `executeStrategy` calls without valid signature
-- [ ] Test: attempt to use unowned destination address → must revert on-chain
-- [ ] Test: valid signature → strategy proceeds normally
-- [ ] Test: signature replay protection (include chain ID + nonce if needed)
+- [x] Enforce on-chain: reject `executeStrategy` calls without valid signature
+- [x] Test: attempt to use unowned destination address → must revert on-chain
+- [x] Test: valid signature → strategy proceeds normally
+- [x] Test: signature replay protection (include chain ID + nonce if needed)
 
 ### 1.2 Live Quote Engine
 
-- [ ] Set up Redis for quote caching (TTL: 60 seconds)
-- [ ] Poll bridge quotes every 15 seconds:
+- [x] Set up Redis for quote caching (TTL: 60 seconds)
+- [~] Poll bridge quotes every 15 seconds:
   - [ ] Stargate SDK — bridge quotes (USDC, USDT, ETH)
   - [ ] Across Protocol SDK — bridge quotes (ETH, USDC, WBTC)
   - [ ] Wormhole SDK — bridge quotes (20+ assets)
-- [ ] Poll swap quotes every 15 seconds:
+- [~] Poll swap quotes every 15 seconds:
   - [ ] 1inch Fusion SDK
   - [ ] Paraswap API
   - [ ] 0x Protocol API
-- [ ] Poll lending APY every 15 seconds:
+- [~] Poll lending APY every 15 seconds:
   - [ ] Aave subgraph (The Graph) — live APY per asset per chain
   - [ ] Compound v3 API — live APY
   - [ ] Morpho API — live APY
-- [ ] Quote invalidation: mark quote stale after 60 seconds, refresh on next poll
-- [ ] API endpoint: `GET /quotes?from=ETH&to=USDC&chain=1&amount=2.5`
-- [ ] Error handling: fallback to last known quote if API is down (with staleness flag)
-- [ ] Unit tests: quote cache set/get/expire logic
+- [x] Quote invalidation: mark quote stale after 60 seconds, refresh on next poll
+- [x] API endpoint: `GET /quotes/bridge` and `GET /quotes/apy` (live endpoints)
+- [x] Error handling: fallback to last known quote if API is down (with staleness flag)
+- [x] Unit tests: quote cache set/get/expire logic
 - [ ] Integration tests: live API calls return valid structure
 
 ### 1.3 Relayer Network v1
 
-- [ ] Set up Bull job queue (Redis-backed) for relayer tasks
-- [ ] Implement `RelayerManager` service:
-  - [ ] Job: `monitorBridgeConfirmation(strategyId, bridgeTxHash, chain)`
-  - [ ] Job: `callContinueStrategy(strategyId, stepIndex)` after confirmation
-  - [ ] Retry logic: exponential backoff, max 5 retries
+- [x] Set up Bull job queue (Redis-backed) for relayer tasks — BullMQ integrated
+- [~] Implement `RelayerManager` service:
+  - [~] Job: `monitorBridgeConfirmation(strategyId, bridgeTxHash, chain)`
+  - [~] Job: `callContinueStrategy(strategyId, stepIndex)` after confirmation
+  - [x] Retry logic: exponential backoff, max 5 retries
   - [ ] Fallback route: if bridge fails, attempt alternate bridge
-  - [ ] Job: `notifyFrontend(strategyId, status)` via WebSocket
+  - [~] Job: `notifyFrontend(strategyId, status)` via WebSocket
 - [ ] Set up event listeners per chain (via Alchemy/QuickNode WebSocket):
   - [ ] Listen for `StrategyStarted` events
   - [ ] Listen for `StepExecuted` events
   - [ ] Listen for bridge destination events (Stargate, Across, Wormhole)
   - [ ] Listen for `StrategyCompleted` events
   - [ ] Listen for `StrategyFailed` events
-- [ ] Relayer wallet management:
-  - [ ] Fund relayer wallets on each supported chain
+- [~] Relayer wallet management:
+  - [x] Fund relayer wallets on each supported chain (Anvil test keys configured)
   - [ ] Monitor relayer wallet balances (alert if low)
   - [ ] Secure key management (AWS KMS or HashiCorp Vault)
 
 ### 1.4 Live Execution Tracker
 
-- [ ] WebSocket server: broadcast status updates per `strategyId`
-- [ ] Frontend: subscribe to WebSocket on strategy submission
-- [ ] Frontend: render live tracker UI:
-  - [ ] Step list with status icons (✅ done, 🔄 in progress, ⬜ pending)
-  - [ ] Per-step TX hash with block explorer link
-  - [ ] ETA countdown for bridge steps
-  - [ ] Total elapsed time
-  - [ ] Total remaining steps
-- [ ] Handle disconnect/reconnect: resume tracking from last known state
-- [ ] Handle strategy failure: show failed step, reason, and emergency exit button
+- [x] WebSocket server: broadcast status updates per `strategyId`
+- [x] Frontend: subscribe to WebSocket on strategy submission
+- [x] Frontend: render live tracker UI:
+  - [x] Step list with status icons (✅ done, 🔄 in progress, ⬜ pending)
+  - [x] Per-step TX hash with block explorer link
+  - [x] ETA countdown for bridge steps
+  - [x] Total elapsed time
+  - [x] Total remaining steps
+- [x] Handle disconnect/reconnect: resume tracking from last known state
+- [x] Handle strategy failure: show failed step, reason, and emergency exit button
 
 ### 1.5 Multi-Chain Support (5 Chains)
 
@@ -396,28 +397,29 @@
 
 ### MeridianRouter.sol
 
-- [ ] **Structs**
-  - [ ] `Strategy`: sourceAsset, sourceAmount, steps[], destinationWallet, destinationSignature, deadline
-  - [ ] `Step`: stepType (SWAP|LEND|BRIDGE|STAKE|SETTLE), protocol, params, minOutput
-- [ ] **Functions**
-  - [ ] `executeStrategy(Strategy calldata)` — main entry point, `payable`
-  - [ ] `continueStrategy(bytes32 strategyId, uint256 stepIndex)` — relayer only
-  - [ ] `emergencyExit(bytes32 strategyId)` — callable by original depositor only
-  - [ ] `verifyDestination(address, bytes calldata)` — internal, pure
-- [ ] **Events**
-  - [ ] `StrategyStarted(bytes32 indexed strategyId, address indexed user, uint256 amount)`
-  - [ ] `StepExecuted(bytes32 indexed strategyId, uint256 stepIndex, StepType stepType)`
-  - [ ] `StrategyCompleted(bytes32 indexed strategyId, address destination, uint256 finalAmount)`
-  - [ ] `StrategyFailed(bytes32 indexed strategyId, uint256 failedStep, string reason)`
-- [ ] **Security checks**
-  - [ ] `nonReentrant` on `executeStrategy`, `continueStrategy`, `emergencyExit`
-  - [ ] `deadline` check: `require(block.timestamp <= strategy.deadline)`
-  - [ ] `minOutput` check per swap step: revert if slippage exceeded
-  - [ ] No `selfdestruct`, no `delegatecall` to untrusted contracts
-  - [ ] `onlyRelayer` modifier on `continueStrategy`
-  - [ ] Zero-address checks on `destinationWallet`
-  - [ ] Signature replay protection: include `strategyId` + `block.chainid` in signed message
-- [ ] **Deployment**
+- [x] **Structs**
+  - [x] `Strategy`: sourceAsset, sourceAmount, steps[], destinationWallet, destinationSignature, deadline
+  - [x] `Step`: stepType (SWAP|LEND|BRIDGE|STAKE|SETTLE), protocol, params, minOutput
+- [x] **Functions**
+  - [x] `executeStrategy(Strategy calldata)` — main entry point, `payable`
+  - [x] `continueStrategy(bytes32 strategyId, uint256 stepIndex)` — relayer only
+  - [x] `emergencyExit(bytes32 strategyId)` — callable by original depositor only
+  - [x] `verifyDestination(address, bytes calldata)` — internal, pure
+- [x] **Events**
+  - [x] `StrategyStarted(bytes32 indexed strategyId, address indexed user, uint256 amount)`
+  - [x] `StepExecuted(bytes32 indexed strategyId, uint256 stepIndex, StepType stepType)`
+  - [x] `StrategyCompleted(bytes32 indexed strategyId, address destination, uint256 finalAmount)`
+  - [x] `StrategyFailed(bytes32 indexed strategyId, uint256 failedStep, string reason)`
+- [x] **Security checks**
+  - [x] `nonReentrant` on `executeStrategy`, `continueStrategy`, `emergencyExit`
+  - [x] `deadline` check: `require(block.timestamp <= strategy.deadline)`
+  - [x] `minOutput` check per swap step: revert if slippage exceeded
+  - [x] No `selfdestruct`, no `delegatecall` to untrusted contracts
+  - [x] `onlyRelayer` modifier on `continueStrategy`
+  - [x] Zero-address checks on `destinationWallet`
+  - [x] Signature replay protection: include `strategyId` + `block.chainid` in signed message
+- [~] **Deployment**
+  - [x] Anvil local node (chain 31337)
   - [ ] Ethereum Sepolia (testnet)
   - [ ] Base Sepolia (testnet)
   - [ ] Ethereum Mainnet
@@ -428,30 +430,30 @@
 
 ### MeridianStrategyRegistry.sol
 
-- [ ] `registerStrategy(bytes calldata)` → returns `bytes32 strategyId`
-- [ ] `getStrategy(bytes32)` → returns strategy data
-- [ ] `deprecateStrategy(bytes32)` → creator only, emits `StrategyDeprecated`
-- [ ] Store: creator address, creation timestamp, version, IPFS hash of full strategy data
-- [ ] Access control: only Router can mark strategy as "executed" (usage counter)
+- [x] `registerStrategy(bytes calldata)` → returns `bytes32 strategyId`
+- [x] `getStrategy(bytes32)` → returns strategy data
+- [x] `deprecateStrategy(bytes32)` → creator only, emits `StrategyDeprecated`
+- [x] Store: creator address, creation timestamp, version, IPFS hash of full strategy data
+- [x] Access control: only Router can mark strategy as "executed" (usage counter)
 
 ### MeridianVault.sol
 
-- [ ] ERC-4626 compliant (standard vault interface)
-- [ ] `deposit(uint256 assets, address receiver)` → mints vault shares
-- [ ] `withdraw(uint256 assets, address receiver, address owner)` → burns shares
-- [ ] `compound()` → callable only by Router — re-invests yield
-- [ ] No admin withdrawal function
-- [ ] Supported underlying assets: ETH, USDC, USDT (phase 1)
+- [x] ERC-4626 compliant (standard vault interface)
+- [x] `deposit(uint256 assets, address receiver)` → mints vault shares
+- [x] `withdraw(uint256 assets, address receiver, address owner)` → burns shares
+- [x] `compound()` → callable only by Router — re-invests yield
+- [x] No admin withdrawal function
+- [x] Supported underlying assets: ETH, USDC, USDT (phase 1)
 
 ### Contract Security Properties (verify all before mainnet)
 
-- [ ] No admin can withdraw user funds
-- [ ] Emergency exit always routes to **source** wallet, never anywhere else
-- [ ] All external calls protected by reentrancy guards
-- [ ] Strategy deadline auto-reverts expired strategies
-- [ ] Slippage `minOutput` enforced per swap
-- [ ] Destination signature is verified on-chain (not just off-chain)
-- [ ] No hidden fees beyond declared 0.08%
+- [x] No admin can withdraw user funds
+- [x] Emergency exit always routes to **source** wallet, never anywhere else
+- [x] All external calls protected by reentrancy guards
+- [x] Strategy deadline auto-reverts expired strategies
+- [x] Slippage `minOutput` enforced per swap
+- [x] Destination signature is verified on-chain (not just off-chain)
+- [x] No hidden fees beyond declared 0.08%
 - [ ] Contracts verified on Etherscan / block explorers per chain
 
 ---
@@ -460,60 +462,60 @@
 
 ### Strategy Engine
 
-- [ ] **Graph construction**
-  - [ ] Node: `(asset, chain, protocol_state)` — e.g., `(ETH, Ethereum, Aave_deposit)`
-  - [ ] Edge: protocol action with metadata — `{type, cost_gas, cost_fee, yield_apy, risk_score}`
-  - [ ] Graph updated in real-time as quotes refresh
-- [ ] **Dijkstra implementation**
-  - [ ] Priority queue: max-score path (not min-cost)
-  - [ ] Score function: `(projected_yield × timeHorizon) − (gas + bridge_fee + slippage)`
-  - [ ] Constraint enforcement: max hops 8, max bridges 3, min TVL $50k
-  - [ ] Risk filter: skip edges touching flagged protocols (exploit feed)
-  - [ ] Return top 3 paths with score breakdown
+- [x] **Graph construction**
+  - [x] Node: `(asset, chain, protocol_state)` — e.g., `(ETH, Ethereum, Aave_deposit)`
+  - [x] Edge: protocol action with metadata — `{type, cost_gas, cost_fee, yield_apy, risk_score}`
+  - [ ] Graph updated in real-time as quotes refresh (currently seeded static graph)
+- [x] **Dijkstra implementation**
+  - [x] Priority queue: max-score path (not min-cost)
+  - [x] Score function: `(projected_yield × timeHorizon) − (gas + bridge_fee + slippage)`
+  - [x] Constraint enforcement: max hops 8, max bridges 3, min TVL $50k
+  - [x] Risk filter: skip edges touching flagged protocols (exploit feed)
+  - [x] Return top 3 paths with score breakdown
 - [ ] **Exploit feed**
   - [ ] Subscribe to DeFi threat intelligence (DefiLlama hacks, Rekt.news RSS)
   - [ ] Auto-flag protocols with active exploits
   - [ ] Manual override: admin can flag/unflag protocols
-- [ ] **API endpoints**
-  - [ ] `POST /strategy/optimize` — input: asset, amount, source chain, destination chain, risk, timeHorizon
+- [~] **API endpoints**
+  - [x] `POST /strategy/optimize` — input: asset, amount, source chain, destination chain, risk, timeHorizon
   - [ ] `GET /strategy/:id` — get strategy details
   - [ ] `POST /strategy/simulate` — Tenderly simulation of strategy
 
 ### Quote Engine
 
-- [ ] **Bridge quote aggregation** (poll every 15s, cache 60s TTL)
+- [~] **Bridge quote aggregation** (poll every 15s, cache 60s TTL)
   - [ ] Stargate: `GET /quote?srcChain=1&dstChain=42161&srcToken=USDC&amount=4200`
   - [ ] Across: SDK `getSuggestedFees()`
   - [ ] Wormhole: SDK `getTransferDetails()`
   - [ ] Hop Protocol: API `/quote`
-- [ ] **Swap quote aggregation** (poll every 15s)
+- [~] **Swap quote aggregation** (poll every 15s)
   - [ ] 1inch Fusion: `/v5.2/1/quote`
   - [ ] Paraswap: `/prices`
   - [ ] 0x: `/swap/v1/quote`
   - [ ] Best-of: return lowest-fee quote across all sources
-- [ ] **APY data** (poll every 15s)
+- [~] **APY data** (poll every 15s)
   - [ ] Aave subgraph: `reservesData { liquidityRate }` → convert to APY
   - [ ] Compound v3 API: `getAPYs()`
   - [ ] Morpho: on-chain `supplyAPY()`
   - [ ] GMX: GLP APR endpoint
   - [ ] Pendle: PT/YT APY endpoints
   - [ ] DeFiLlama `GET /yields/pools` — backup source for all APYs
-- [ ] **Staleness handling**
-  - [ ] Return `{quote, timestamp, isStale: bool}` in all quote responses
+- [x] **Staleness handling**
+  - [x] Return `{quote, timestamp, isStale: bool}` in all quote responses
   - [ ] Frontend: warn user if executing with stale quote (>60s)
-- [ ] **API endpoints**
-  - [ ] `GET /quotes/bridge?from=1&to=42161&asset=USDC&amount=4200`
+- [~] **API endpoints**
+  - [x] `GET /quotes/bridge?from=1&to=42161&asset=USDC&amount=4200`
   - [ ] `GET /quotes/swap?chain=1&from=ETH&to=USDC&amount=2.5`
-  - [ ] `GET /quotes/apy?protocol=aave&asset=USDC&chain=1`
+  - [x] `GET /quotes/apy?protocol=aave&asset=USDC&chain=1`
 
 ### Relayer Manager
 
-- [ ] **Job types** (Bull queue)
-  - [ ] `MonitorBridge` — poll for bridge confirmation on destination chain
-  - [ ] `ContinueStrategy` — call `continueStrategy()` on Router after bridge confirms
-  - [ ] `RetryStep` — retry failed step with exponential backoff (max 5 retries)
+- [~] **Job types** (Bull queue)
+  - [~] `MonitorBridge` — poll for bridge confirmation on destination chain
+  - [~] `ContinueStrategy` — call `continueStrategy()` on Router after bridge confirms
+  - [x] `RetryStep` — retry failed step with exponential backoff (max 5 retries)
   - [ ] `FallbackRoute` — if primary bridge fails, find and use alternate bridge
-  - [ ] `NotifyFrontend` — push WebSocket update to user
+  - [~] `NotifyFrontend` — push WebSocket update to user
   - [ ] `EmergencyExit` — trigger emergency exit if unrecoverable failure
 - [ ] **Chain listeners** (per chain, WebSocket)
   - [ ] Ethereum: Alchemy WebSocket
@@ -521,8 +523,8 @@
   - [ ] Arbitrum: Alchemy WebSocket
   - [ ] BNB Chain: QuickNode WebSocket
   - [ ] Polygon: Alchemy WebSocket
-- [ ] **Relayer wallets**
-  - [ ] Separate funded wallet per chain
+- [~] **Relayer wallets**
+  - [x] Separate funded wallet per chain (Anvil keys configured)
   - [ ] Balance monitoring: alert if balance < 0.05 ETH equivalent
   - [ ] Key storage: AWS KMS (never plaintext in environment)
   - [ ] Nonce management: prevent nonce collision on concurrent transactions
@@ -538,10 +540,10 @@
   - [ ] Email/password auth (optional for Pro tier)
   - [ ] JWT refresh tokens
   - [ ] Rate limiting: per IP, per API key
-- [ ] **Endpoints — Core**
+- [~] **Endpoints — Core**
   - [ ] `POST /auth/wallet` — wallet sign-in
   - [ ] `POST /strategy/execute` — submit strategy for execution
-  - [ ] `GET /strategy/:id/status` — current execution status
+  - [x] `GET /strategy/:id/status` — current execution status
   - [ ] `GET /strategy/:id/report` — tax/audit report
   - [ ] `GET /user/executions` — all past executions for user
   - [ ] `GET /user/portfolio` — asset balances across chains
@@ -554,14 +556,14 @@
   - [ ] `POST /subscription/upgrade` — upgrade to Pro/Business
   - [ ] `GET /subscription/status` — current tier, usage
   - [ ] `POST /subscription/cancel`
-- [ ] **Database (PostgreSQL)**
-  - [ ] Table: `users` — id, wallet_address, email, tier, created_at
-  - [ ] Table: `strategies` — id, creator_id, name, steps_json, chain_ids, published
-  - [ ] Table: `executions` — id, user_id, strategy_id, status, started_at, completed_at
-  - [ ] Table: `execution_steps` — id, execution_id, step_index, type, tx_hash, chain, amount_in, amount_out, fee, timestamp
-  - [ ] Table: `quotes_cache` — (managed via Redis, Postgres as audit log)
-  - [ ] Table: `subscriptions` — user_id, tier, stripe_customer_id, active_until
-  - [ ] Migrations: all schema changes via versioned migration files
+- [x] **Database (PostgreSQL)**
+  - [x] Table: `users` — id, wallet_address, email, tier, created_at
+  - [x] Table: `strategies` — id, creator_id, name, steps_json, chain_ids, published
+  - [x] Table: `executions` — id, user_id, strategy_id, status, started_at, completed_at
+  - [x] Table: `execution_steps` — id, execution_id, step_index, type, tx_hash, chain, amount_in, amount_out, fee, timestamp
+  - [x] Table: `quotes_cache` — (managed via Redis, Postgres as audit log)
+  - [x] Table: `subscriptions` — user_id, tier, stripe_customer_id, active_until
+  - [x] Migrations: all schema changes via versioned migration files
 
 ---
 
@@ -569,14 +571,14 @@
 
 ### Wallet & Connection
 
-- [ ] MetaMask integration (Wagmi)
-- [ ] Rabby Wallet integration
-- [ ] WalletConnect v2 integration
-- [ ] Coinbase Wallet integration
+- [x] MetaMask integration (Wagmi)
+- [x] Rabby Wallet integration
+- [x] WalletConnect v2 integration
+- [x] Coinbase Wallet integration
 - [ ] Phantom (Solana — Phase 2)
-- [ ] Multi-chain asset detection: read ERC-20 balances across all supported chains
-- [ ] Display: wallet address truncated, balance summary, network indicator
-- [ ] Disconnect flow: clear session, return to landing page
+- [x] Multi-chain asset detection: read ERC-20 balances across all supported chains
+- [x] Display: wallet address truncated, balance summary, network indicator
+- [x] Disconnect flow: clear session, return to landing page
 
 ### Strategy Selection Flow
 
@@ -602,12 +604,12 @@
   - [ ] Fallback: standard transaction
   - [ ] Spinner during TX submission
   - [ ] Redirect to live tracker on success
-- [ ] **Step 7 — Live Tracker**:
-  - [ ] WebSocket-powered real-time status
-  - [ ] Step list with ✅/🔄/⬜ status
-  - [ ] Per-step TX hash → block explorer link
-  - [ ] ETA for bridge steps
-  - [ ] Emergency Exit button (if strategy is stuck)
+- [x] **Step 7 — Live Tracker**:
+  - [x] WebSocket-powered real-time status
+  - [x] Step list with ✅/🔄/⬜ status
+  - [x] Per-step TX hash → block explorer link
+  - [x] ETA for bridge steps
+  - [x] Emergency Exit button (if strategy is stuck)
 - [ ] **Step 8 — Settlement & Report**:
   - [ ] Confirmation: "X USDC received at 0xABC...DEF"
   - [ ] Download buttons: [CSV] [PDF] [JSON]
@@ -723,14 +725,14 @@
 
 ### Pre-Audit Checklist
 
-- [ ] All contracts use Solidity 0.8.x (built-in overflow protection)
-- [ ] All contracts use OpenZeppelin primitives (ReentrancyGuard, ECDSA, Ownable2Step)
-- [ ] No `tx.origin` for authentication
+- [x] All contracts use Solidity 0.8.x (built-in overflow protection)
+- [x] All contracts use OpenZeppelin primitives (ReentrancyGuard, ECDSA, Ownable2Step)
+- [x] No `tx.origin` for authentication
 - [ ] No unchecked math outside explicit `unchecked {}` blocks with clear rationale
 - [ ] All return values from external calls are checked
-- [ ] No centralized admin functions that can move user funds
-- [ ] `emergencyExit` only routes to source wallet — verified in tests
-- [ ] All events emitted for all state changes (full audit trail)
+- [x] No centralized admin functions that can move user funds
+- [x] `emergencyExit` only routes to source wallet — verified in tests
+- [x] All events emitted for all state changes (full audit trail)
 - [ ] NatSpec documentation on all public functions
 - [ ] Static analysis: run Slither and fix all warnings
 - [ ] Static analysis: run Mythril and fix all findings
@@ -752,11 +754,11 @@
 
 ### Destination Verification Security
 
-- [ ] Verified: signature includes `block.chainid` (cross-chain replay protection)
-- [ ] Verified: signature includes `strategyId` (strategy-level replay protection)
-- [ ] Verified: `verifyDestination()` is called on every `executeStrategy()` — cannot be bypassed
-- [ ] Verified: `emergencyExit` still works even when destination verification fails
-- [ ] Tested: sending to unowned address → contract reverts
+- [x] Verified: signature includes `block.chainid` (cross-chain replay protection)
+- [x] Verified: signature includes `strategyId` (strategy-level replay protection)
+- [x] Verified: `verifyDestination()` is called on every `executeStrategy()` — cannot be bypassed
+- [x] Verified: `emergencyExit` still works even when destination verification fails
+- [x] Tested: sending to unowned address → contract reverts
 
 ### Bug Bounty
 
@@ -815,24 +817,24 @@
 
 ### CI/CD (GitHub Actions)
 
-- [ ] PR checks: lint (ESLint, Solhint), type-check (tsc), unit tests
+- [x] PR checks: lint (ESLint, Solhint), type-check (tsc), unit tests
 - [ ] Main branch: automated deploy to staging
 - [ ] Release tags: automated deploy to production (manual approval gate)
 - [ ] Contract deploy: separate workflow, requires multisig sign-off
 
 ### Environment Variables (document all)
 
-- [ ] `DATABASE_URL` — PostgreSQL connection string
-- [ ] `REDIS_URL` — Redis connection string
-- [ ] `ALCHEMY_API_KEY` — per chain
+- [x] `DATABASE_URL` — PostgreSQL connection string
+- [x] `REDIS_URL` — Redis connection string
+- [x] `ALCHEMY_API_KEY` — per chain (Sepolia RPC keys configured)
 - [ ] `QUICKNODE_API_KEY` — per chain
-- [ ] `RELAYER_PRIVATE_KEY_*` — per chain (stored in AWS KMS)
-- [ ] `JWT_SECRET` — auth token signing
-- [ ] `STRIPE_SECRET_KEY` — subscription payments
+- [x] `RELAYER_PRIVATE_KEY_*` — per chain (Anvil test keys; prod: AWS KMS)
+- [x] `JWT_SECRET` — auth token signing
+- [x] `STRIPE_SECRET_KEY` — subscription payments (template)
 - [ ] `TENDERLY_ACCESS_KEY` — simulation + monitoring
 - [ ] `THEGRAPH_API_KEY` — subgraph queries
-- [ ] `ONEINCH_API_KEY`, `PARASWAP_API_KEY`, `ZRX_API_KEY` — swap quotes
-- [ ] `DEFI_LLAMA_API_KEY` — APY/TVL data
+- [x] `ONEINCH_API_KEY`, `PARASWAP_API_KEY`, `ZRX_API_KEY` — swap quotes (templates)
+- [x] `DEFI_LLAMA_API_KEY` — APY/TVL data (template)
 
 ---
 
@@ -840,30 +842,30 @@
 
 ### Smart Contract Tests (Foundry + Hardhat)
 
-- [ ] `executeStrategy()` — happy path with all step types
-- [ ] `executeStrategy()` — reverts if deadline expired
-- [ ] `executeStrategy()` — reverts if destination signature invalid
-- [ ] `executeStrategy()` — reverts if `minOutput` slippage exceeded on any swap step
-- [ ] `continueStrategy()` — only callable by authorized relayer
-- [ ] `continueStrategy()` — correct step index sequencing
-- [ ] `emergencyExit()` — only callable by original depositor
-- [ ] `emergencyExit()` — always returns to source wallet (never destination)
-- [ ] `emergencyExit()` — works even mid-execution (funds mid-flight recovered)
-- [ ] Reentrancy: attempt reentrancy attack on `executeStrategy()` → must fail
-- [ ] Signature replay: attempt same destination signature on different strategy → must fail
-- [ ] Signature replay: attempt same signature on different chain → must fail
-- [ ] Fuzz: `executeStrategy()` with random amounts, deadline offsets, slippage values
-- [ ] Fuzz: `verifyDestination()` with random signature bytes → non-owned addresses must fail
+- [x] `executeStrategy()` — happy path with all step types
+- [x] `executeStrategy()` — reverts if deadline expired
+- [x] `executeStrategy()` — reverts if destination signature invalid
+- [x] `executeStrategy()` — reverts if `minOutput` slippage exceeded on any swap step
+- [x] `continueStrategy()` — only callable by authorized relayer
+- [x] `continueStrategy()` — correct step index sequencing
+- [x] `emergencyExit()` — only callable by original depositor
+- [x] `emergencyExit()` — always returns to source wallet (never destination)
+- [x] `emergencyExit()` — works even mid-execution (funds mid-flight recovered)
+- [x] Reentrancy: attempt reentrancy attack on `executeStrategy()` → must fail
+- [x] Signature replay: attempt same destination signature on different strategy → must fail
+- [x] Signature replay: attempt same signature on different chain → must fail
+- [x] Fuzz: `executeStrategy()` with random amounts, deadline offsets, slippage values
+- [x] Fuzz: `verifyDestination()` with random signature bytes → non-owned addresses must fail
 - [ ] Fork tests: run strategy against mainnet fork (Ethereum, Arbitrum)
 
 ### Backend Unit Tests
 
-- [ ] Strategy Engine: Dijkstra returns correct max-score path (hand-verified examples)
-- [ ] Strategy Engine: max hops constraint enforced (>8 hops → filtered out)
-- [ ] Strategy Engine: max bridge constraint (>3 bridges → filtered out)
-- [ ] Strategy Engine: exploit-flagged protocol → excluded from all routes
-- [ ] Quote Engine: stale quote flag set correctly after 60s
-- [ ] Quote Engine: cache miss → fetches live, cache hit → returns cached
+- [x] Strategy Engine: Dijkstra returns correct max-score path (hand-verified examples)
+- [x] Strategy Engine: max hops constraint enforced (>8 hops → filtered out)
+- [x] Strategy Engine: max bridge constraint (>3 bridges → filtered out)
+- [x] Strategy Engine: exploit-flagged protocol → excluded from all routes
+- [x] Quote Engine: stale quote flag set correctly after 60s
+- [x] Quote Engine: cache miss → fetches live, cache hit → returns cached
 - [ ] Relayer Manager: job retry logic — fails after 5 retries
 - [ ] Relayer Manager: nonce management — no duplicate nonces on concurrent jobs
 - [ ] Auth: JWT issued on valid wallet signature
