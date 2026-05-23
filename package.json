@@ -1,0 +1,31 @@
+{
+  "name": "meridian",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Cross-chain DeFi strategy router",
+  "scripts": {
+    "dev": "pnpm --parallel --filter=backend --filter=frontend dev",
+    "build": "pnpm --recursive build",
+    "test": "pnpm --recursive test",
+    "lint": "pnpm --recursive lint",
+    "typecheck": "pnpm --recursive typecheck",
+    "contracts:test": "cd contracts && forge test -vv",
+    "contracts:build": "cd contracts && forge build",
+    "contracts:coverage": "cd contracts && forge coverage"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3"
+  },
+  "prettier": {
+    "singleQuote": true,
+    "semi": true,
+    "tabWidth": 2,
+    "trailingComma": "es5",
+    "printWidth": 100
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}
