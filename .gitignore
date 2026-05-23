@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.*
+!.env.example
+dist/
+build/
+out/
+cache/
+artifacts/
+typechain-types/
+.turbo/
+coverage/
+*.log
+.DS_Store
+graphify-out/
