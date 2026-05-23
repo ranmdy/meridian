@@ -6,13 +6,6 @@ interface StepTrackerProps {
   status: ExecutionStatus;
 }
 
-const STEP_TYPE_LABELS: Record<string, string> = {
-  SWAP: 'Swap',
-  LEND: 'Lend',
-  BRIDGE: 'Bridge',
-  STAKE: 'Stake',
-  SETTLE: 'Settle',
-};
 
 function StatusIcon({ status }: { status: StepStatus['status'] }) {
   if (status === 'done') {
