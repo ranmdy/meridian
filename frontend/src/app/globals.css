@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-bg: 3 7 18;          /* gray-950 */
+    --color-surface: 17 24 39;   /* gray-900 */
+    --color-border: 31 41 55;    /* gray-800 */
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-gray-900/60 backdrop-blur-sm border border-gray-800 rounded-xl;
+  }
+}

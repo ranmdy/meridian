@@ -1,0 +1,188 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─── Contracts ────────────────────────────────────────────────────────────────
+  contracts:
+    name: Contracts (Forge)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Cache Forge build
+        uses: actions/cache@v4
+        with:
+          path: contracts/out
+          key: forge-${{ hashFiles('contracts/src/**/*.sol', 'contracts/foundry.toml') }}
+
+      - name: Solhint lint
+        run: |
+          npm install -g solhint
+          solhint 'src/**/*.sol'
+
+      - name: Build
+        run: forge build --sizes
+
+      - name: Test (with gas report)
+        run: forge test -vvv --gas-report
+        env:
+          ETH_RPC_URL: ${{ secrets.ETH_RPC_URL }}
+
+      - name: Coverage
+        run: forge coverage --report lcov
+        env:
+          ETH_RPC_URL: ${{ secrets.ETH_RPC_URL }}
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: contracts/lcov.info
+          flags: contracts
+        continue-on-error: true
+
+  # ─── Backend ──────────────────────────────────────────────────────────────────
+  backend:
+    name: Backend (Node.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: meridian_test
+          POSTGRES_USER: meridian
+          POSTGRES_PASSWORD: meridian
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: TypeScript type check
+        run: pnpm tsc --noEmit
+
+      - name: ESLint
+        run: pnpm lint
+
+      - name: Run migrations
+        run: |
+          psql $DATABASE_URL -f src/db/migrations/001_initial_schema.sql
+        env:
+          DATABASE_URL: postgresql://meridian:meridian@localhost:5432/meridian_test
+
+      - name: Unit + integration tests
+        run: pnpm test --reporter=verbose
+        env:
+          DATABASE_URL: postgresql://meridian:meridian@localhost:5432/meridian_test
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-secret-32-chars-minimum-here
+          NODE_ENV: test
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: backend/coverage/lcov.info
+          flags: backend
+        continue-on-error: true
+
+  # ─── Frontend ─────────────────────────────────────────────────────────────────
+  frontend:
+    name: Frontend (Next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: TypeScript type check
+        run: pnpm tsc --noEmit
+
+      - name: ESLint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:3001
+          NEXT_PUBLIC_WC_PROJECT_ID: dummy-ci-project-id
+
+  # ─── Required status check gate ───────────────────────────────────────────────
+  all-pass:
+    name: All checks passed
+    needs: [contracts, backend, frontend]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check results
+        run: |
+          if [[ "${{ needs.contracts.result }}" != "success" || \
+                "${{ needs.backend.result }}" != "success" || \
+                "${{ needs.frontend.result }}" != "success" ]]; then
+            echo "One or more jobs failed"
+            exit 1
+          fi
+          echo "All jobs passed"

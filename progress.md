@@ -30,77 +30,77 @@
 
 ### 0.1 Architecture & Design
 
-- [ ] Finalize system architecture diagram (Frontend → Backend → On-Chain)
-- [ ] Define API contract between Frontend ↔ Backend (REST + WebSocket spec)
-- [ ] Define on-chain interface: `IMeridianRouter` — all functions, events, structs
-- [ ] Define database schema: strategies, users, executions, quotes
-- [ ] Define Redis key schema: quote cache, session tokens, relayer jobs
-- [ ] Choose monorepo structure (`/contracts`, `/backend`, `/frontend`, `/sdk`)
-- [ ] Set up monorepo tooling (pnpm workspaces or turborepo)
-- [ ] Initialize Git repos, branch strategy (main / dev / feature/*)
-- [ ] Set up CI/CD pipeline (GitHub Actions) — lint, test, deploy gates
-- [ ] Write CONTRIBUTING.md and code style guides (ESLint, Prettier, Solhint)
-- [ ] Document all environment variables needed across all services
+- [x] Finalize system architecture diagram (Frontend → Backend → On-Chain)
+- [x] Define API contract between Frontend ↔ Backend (REST + WebSocket spec)
+- [x] Define on-chain interface: `IMeridianRouter` — all functions, events, structs
+- [x] Define database schema: strategies, users, executions, quotes
+- [x] Define Redis key schema: quote cache, session tokens, relayer jobs
+- [x] Choose monorepo structure (`/contracts`, `/backend`, `/frontend`, `/sdk`)
+- [x] Set up monorepo tooling (pnpm workspaces or turborepo)
+- [x] Initialize Git repos, branch strategy (main / dev / feature/*)
+- [x] Set up CI/CD pipeline (GitHub Actions) — lint, test, deploy gates
+- [x] Write CONTRIBUTING.md and code style guides (ESLint, Prettier, Solhint)
+- [x] Document all environment variables needed across all services
 
 ### 0.2 Smart Contracts — MVP Scope
 
-- [ ] Initialize Hardhat + Foundry dual setup in `/contracts`
-- [ ] Write `IMeridianRouter` interface in Solidity 0.8.x
-- [ ] Implement `MeridianRouter.sol` — Ethereum deployment
-  - [ ] `executeStrategy(Strategy calldata)` entry point
-  - [ ] `continueStrategy(bytes32 strategyId, uint256 stepIndex)` — relayer callback
-  - [ ] `emergencyExit(bytes32 strategyId)` — always returns to source wallet
-  - [ ] `verifyDestination(address, bytes calldata)` — ECDSA signature check
-  - [ ] Reentrancy guard on all external calls (OpenZeppelin `ReentrancyGuard`)
-  - [ ] Strategy deadline enforcement (auto-revert if expired)
-  - [ ] Slippage protection: `minOutput` enforced per swap step
-  - [ ] No admin withdrawal functions (verify in code review)
-  - [ ] Events: `StrategyStarted`, `StepExecuted`, `StrategyCompleted`, `StrategyFailed`
+- [x] Initialize Hardhat + Foundry dual setup in `/contracts`
+- [x] Write `IMeridianRouter` interface in Solidity 0.8.x
+- [x] Implement `MeridianRouter.sol` — Ethereum deployment
+  - [x] `executeStrategy(Strategy calldata)` entry point
+  - [x] `continueStrategy(bytes32 strategyId, uint256 stepIndex)` — relayer callback
+  - [x] `emergencyExit(bytes32 strategyId)` — always returns to source wallet
+  - [x] `verifyDestination(address, bytes calldata)` — ECDSA signature check
+  - [x] Reentrancy guard on all external calls (OpenZeppelin `ReentrancyGuard`)
+  - [x] Strategy deadline enforcement (auto-revert if expired)
+  - [x] Slippage protection: `minOutput` enforced per swap step
+  - [x] No admin withdrawal functions (verify in code review)
+  - [x] Events: `StrategyStarted`, `StepExecuted`, `StrategyCompleted`, `StrategyFailed`
 - [ ] Deploy `MeridianRouter.sol` to Ethereum testnet (Sepolia)
 - [ ] Deploy `MeridianRouter.sol` to Base testnet (Base Sepolia)
-- [ ] Write `MeridianStrategyRegistry.sol` (on-chain strategy storage)
-  - [ ] `registerStrategy(bytes calldata strategyData)` — returns strategyId
-  - [ ] `getStrategy(bytes32 strategyId)` — read-only
-  - [ ] `deprecateStrategy(bytes32 strategyId)` — creator-only
-- [ ] Write `MeridianVault.sol` (optional yield compounding)
-  - [ ] ERC-4626 compliant vault interface
-  - [ ] Deposit / withdraw functions
-  - [ ] Yield compounding logic
-  - [ ] Access control: only Router can call `compound()`
+- [x] Write `MeridianStrategyRegistry.sol` (on-chain strategy storage)
+  - [x] `registerStrategy(bytes calldata strategyData)` — returns strategyId
+  - [x] `getStrategy(bytes32 strategyId)` — read-only
+  - [x] `deprecateStrategy(bytes32 strategyId)` — creator-only
+- [x] Write `MeridianVault.sol` (optional yield compounding)
+  - [x] ERC-4626 compliant vault interface
+  - [x] Deposit / withdraw functions
+  - [x] Yield compounding logic
+  - [x] Access control: only Router can call `compound()`
 
 ### 0.3 Strategy Engine v1
 
-- [ ] Set up Node.js + TypeScript backend project with Fastify
-- [ ] Design protocol graph data structure: nodes = (asset, chain, protocol), edges = actions
-- [ ] Implement `buildGraph()` — constructs the full protocol graph from config
-- [ ] Implement edge weight scoring:
+- [x] Set up Node.js + TypeScript backend project with Fastify
+- [x] Design protocol graph data structure: nodes = (asset, chain, protocol), edges = actions
+- [x] Implement `buildGraph()` — constructs the full protocol graph from config
+- [x] Implement edge weight scoring:
   - `score = (projected_yield × timeHorizon) − (gas_cost + bridge_fee + slippage)`
-- [ ] Implement `runDijkstra(source, destination, constraints)` — modified for max score
-- [ ] Apply constraints in pathfinder:
-  - [ ] Max hops: 8
-  - [ ] Max bridge count: 3
-  - [ ] Min liquidity per hop: $50k TVL
-  - [ ] Risk filter: exclude protocols with active exploits flag
-- [ ] Return top 3 routes with tradeoff summary
-- [ ] Unit tests for all pathfinding logic
+- [x] Implement `runDijkstra(source, destination, constraints)` — modified for max score
+- [x] Apply constraints in pathfinder:
+  - [x] Max hops: 8
+  - [x] Max bridge count: 3
+  - [x] Min liquidity per hop: $50k TVL
+  - [x] Risk filter: exclude protocols with active exploits flag
+- [x] Return top 3 routes with tradeoff summary
+- [x] Unit tests for all pathfinding logic
 
 ### 0.4 Basic Frontend
 
-- [ ] Initialize Next.js 14 (App Router) + TypeScript project
-- [ ] Set up TailwindCSS
-- [ ] Set up Wagmi v2 + Viem for EVM wallet connection
-- [ ] Implement wallet connect modal (MetaMask, Rabby, WalletConnect, Coinbase Wallet)
-- [ ] Implement asset detection: read balances across all supported chains
-- [ ] Implement basic deposit form: select asset, enter amount
-- [ ] Implement route display: show selected strategy steps
-- [ ] Implement execute button: send `executeStrategy` transaction
-- [ ] Implement basic transaction status page (polling TX hash)
+- [x] Initialize Next.js 14 (App Router) + TypeScript project
+- [x] Set up TailwindCSS
+- [x] Set up Wagmi v2 + Viem for EVM wallet connection
+- [x] Implement wallet connect modal (MetaMask, Rabby, WalletConnect, Coinbase Wallet)
+- [x] Implement asset detection: read balances across all supported chains
+- [x] Implement basic deposit form: select asset, enter amount
+- [x] Implement route display: show selected strategy steps
+- [x] Implement execute button: send `executeStrategy` transaction
+- [x] Implement basic transaction status page (polling TX hash)
 
 ### 0.5 Initial Protocol Integrations (Phase 0 set)
 
-- [ ] **Aave v3** — lending deposit/borrow via Aave v3 SDK (Ethereum)
-- [ ] **Uniswap v3** — swap via Uniswap v3 SDK (Ethereum, Arbitrum, Base, Polygon)
-- [ ] **Stargate** — bridge USDC/USDT/ETH via Stargate SDK
+- [x] **Aave v3** — lending deposit/borrow via Aave v3 SDK (Ethereum)
+- [x] **Uniswap v3** — swap via Uniswap v3 SDK (Ethereum, Arbitrum, Base, Polygon)
+- [x] **Stargate** — bridge USDC/USDT/ETH via Stargate SDK
 
 ### 0.6 Testnet Deployment
 
@@ -1006,5 +1006,5 @@
 
 ---
 
-*Last updated: —*
+*Last updated: Phase 0 complete — 2026-05-23*
 *Build until every box is checked.*
