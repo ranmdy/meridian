@@ -1,4 +1,5 @@
-import { buildSeedGraph, ProtocolGraph } from './graph.js';
+import { buildSeedGraph } from './graph.js';
+import type { ProtocolGraph } from './graph.js';
 import { findTopRoutes } from './pathfinder.js';
 import type { StrategyRequest, StrategyResponse } from './types.js';
 import { config } from '../../config/index.js';
