@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ExecutionPoller } from '@/components/execution/ExecutionPoller';
+import { ExecutionPoller } from '@/src/components/execution/ExecutionPoller';
 
 interface PageProps {
   params: { id: string };
