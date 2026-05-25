@@ -96,7 +96,7 @@ export function ExecutionPoller({ executionId, showSettlement = true }: Executio
 
   if (error) {
     return (
-      <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+      <div className="rounded-xl border border-red-900 bg-red-950/40 px-4 py-3 text-sm text-red-400">
         Error loading execution status: {error}
       </div>
     );
@@ -104,8 +104,8 @@ export function ExecutionPoller({ executionId, showSettlement = true }: Executio
 
   if (!status) {
     return (
-      <div className="flex items-center gap-2 text-sm text-white/40">
-        <span className="h-3 w-3 rounded-full bg-white/20 animate-pulse" />
+      <div className="flex items-center gap-2 text-sm text-gray-500">
+        <span className="h-3 w-3 rounded-full bg-gray-700 animate-pulse" />
         Loading execution status…
       </div>
     );

@@ -82,7 +82,7 @@ export function ExecutionHistory() {
         <Link
           key={exec.executionId}
           href={`/execution/${exec.executionId}`}
-          className="flex items-center justify-between px-5 py-4 hover:bg-white/5 transition-colors group"
+          className="flex items-center justify-between px-5 py-4 hover:bg-gray-800/30 transition-colors group"
         >
           <div className="min-w-0">
             <div className="text-sm font-medium text-gray-200 truncate font-mono">

@@ -30,23 +30,23 @@ export function ExportButtons({ executionId }: Props) {
 
   return (
     <div className="mt-6">
-      <p className="text-xs text-white/40 mb-2">Export execution report</p>
+      <p className="text-xs text-gray-500 mb-2">Export execution report</p>
       <div className="flex gap-2 flex-wrap">
         <button
           onClick={() => void handleDownload('csv')}
-          className="text-xs px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white/90 transition-colors"
+          className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 bg-gray-800/60 hover:bg-gray-800 text-gray-400 hover:text-gray-100 transition-colors"
         >
           CSV (Koinly/CoinTracker)
         </button>
         <button
           onClick={() => void handleDownload('json')}
-          className="text-xs px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white/90 transition-colors"
+          className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 bg-gray-800/60 hover:bg-gray-800 text-gray-400 hover:text-gray-100 transition-colors"
         >
           JSON (raw data)
         </button>
         <button
           onClick={() => void handleDownload('text')}
-          className="text-xs px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white/90 transition-colors"
+          className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 bg-gray-800/60 hover:bg-gray-800 text-gray-400 hover:text-gray-100 transition-colors"
         >
           PDF Report (text)
         </button>

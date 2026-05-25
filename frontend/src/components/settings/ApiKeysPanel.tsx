@@ -134,7 +134,7 @@ export function ApiKeysPanel() {
           ].map((s) => (
             <div key={s.label} className="glass p-4">
               <p className="text-xs text-gray-500 mb-1">{s.label}</p>
-              <p className="text-xl font-bold text-white">{s.value}</p>
+              <p className="text-xl font-bold text-gray-100">{s.value}</p>
             </div>
           ))}
         </div>

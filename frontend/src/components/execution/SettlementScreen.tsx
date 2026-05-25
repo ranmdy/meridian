@@ -64,18 +64,18 @@ export function SettlementScreen({ status, executionId }: Props) {
   return (
     <div className="space-y-6">
       {/* Success banner */}
-      <div className="rounded-2xl bg-green-500/10 border border-green-500/20 p-6 text-center">
+      <div className="rounded-2xl bg-green-950/40 border border-green-900 p-6 text-center">
         <div className="flex items-center justify-center mb-3">
-          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-green-500/20 text-green-400 text-2xl font-bold">
+          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-green-950/60 text-green-400 text-2xl font-bold">
             ✓
           </span>
         </div>
         <h2 className="text-xl font-bold text-green-400 mb-1">Strategy Complete</h2>
-        <p className="text-sm text-white/50">
+        <p className="text-sm text-gray-400">
           Assets delivered to destination wallet.
         </p>
         {destinationWallet && (
-          <p className="mt-2 font-mono text-xs text-white/40 break-all">
+          <p className="mt-2 font-mono text-xs text-gray-500 break-all">
             {destinationWallet}
           </p>
         )}
@@ -83,12 +83,12 @@ export function SettlementScreen({ status, executionId }: Props) {
 
       {/* Step summary */}
       {status.steps.length > 0 && (
-        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-          <div className="text-xs text-white/40 mb-3 uppercase tracking-widest">Completed Steps</div>
+        <div className="rounded-xl border border-gray-800 bg-gray-900/40 p-4">
+          <div className="text-xs text-gray-500 mb-3 uppercase tracking-widest">Completed Steps</div>
           <div className="space-y-2">
             {status.steps.map((step) => (
               <div key={step.index} className="flex items-center justify-between text-sm">
-                <span className="text-white/60">Step {step.index + 1}</span>
+                <span className="text-gray-400">Step {step.index + 1}</span>
                 <div className="flex items-center gap-3">
                   {step.txHash && explorerBase && (
                     <a
@@ -114,27 +114,27 @@ export function SettlementScreen({ status, executionId }: Props) {
           href={`${explorerBase}${txHash}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="block w-full text-center py-2.5 rounded-lg border border-white/10 text-sm text-white/60 hover:text-white hover:border-white/30 transition-colors"
+          className="block w-full text-center py-2.5 rounded-lg border border-gray-700 text-sm text-gray-400 hover:text-gray-100 hover:border-gray-600 transition-colors"
         >
           View final transaction on explorer →
         </a>
       )}
 
       {/* Download report */}
-      <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-        <div className="text-xs text-white/40 mb-3 uppercase tracking-widest">Download Report</div>
+      <div className="rounded-xl border border-gray-800 bg-gray-900/40 p-4">
+        <div className="text-xs text-gray-500 mb-3 uppercase tracking-widest">Download Report</div>
         <div className="grid grid-cols-3 gap-2">
           {(['csv', 'json', 'text'] as const).map((fmt) => (
             <button
               key={fmt}
               onClick={() => void downloadReport(fmt)}
-              className="py-2 rounded-lg border border-white/10 text-xs text-white/60 hover:text-white hover:border-white/30 uppercase tracking-widest transition-colors"
+              className="py-2 rounded-lg border border-gray-700 text-xs text-gray-400 hover:text-gray-100 hover:border-gray-600 uppercase tracking-widest transition-colors"
             >
               {fmt === 'text' ? 'PDF' : fmt.toUpperCase()}
             </button>
           ))}
         </div>
-        <p className="text-xs text-white/25 mt-2 text-center">
+        <p className="text-xs text-gray-600 mt-2 text-center">
           Compatible with Koinly, CoinTracker, TaxBit, Coinpanda
         </p>
       </div>
@@ -154,12 +154,12 @@ export function SettlementScreen({ status, executionId }: Props) {
       <Link
         href="/"
         onClick={resetStrategy}
-        className="block w-full text-center py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 hover:text-white text-sm font-medium transition-colors"
+        className="block w-full text-center py-3 rounded-xl bg-gray-800/60 hover:bg-gray-800 border border-gray-700 text-gray-300 hover:text-gray-100 text-sm font-medium transition-colors"
       >
         Run another strategy →
       </Link>
 
-      <p className="text-xs text-white/25 text-center">
+      <p className="text-xs text-gray-600 text-center">
         Execution ID: <span className="font-mono">{executionId}</span>
       </p>
     </div>
