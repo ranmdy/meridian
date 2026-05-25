@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 
 // ── Data ────────────────────────────────────────────────────────────
 const CHAINS: Record<string, { id: string; name: string; short: string; color: string; x: number; y: number }> = {
@@ -69,7 +69,7 @@ const OPPORTUNITIES = [
 
 function genPnl(start: number, range: number, vol: number) {
   const out: number[] = [];
-  let seed = start;
+  void start; // seed unused — wiggle uses sin/cos only
   for (let i = 0; i < 180; i++) {
     const t = i / 179;
     const eased = Math.pow(t, 0.85);
@@ -1049,7 +1049,7 @@ function RoutesPage({ view }: { view: ReturnType<typeof buildView> }) {
               <div className="big-stat"><div className="l">In flight</div><div className="v">{fmtUSD(view.activeRoutes.reduce((s,r)=>s+Number(r.amount),0),0)}</div><div className="s">across {view.activeRoutes.length} routes</div></div>
               <div className="big-stat"><div className="l">Avg dest. APY</div><div className="v green">{(view.activeRoutes.reduce((s,r)=>s+r.apy,0)/Math.max(1,view.activeRoutes.length)).toFixed(2)}%</div><div className="s">post-bridge</div></div>
               <div className="big-stat"><div className="l">Avg ETA</div><div className="v">~6m</div><div className="s">remaining</div></div>
-              <div className="big-stat"><div className="l">Today's routes</div><div className="v">14</div><div className="s">+3 vs yesterday</div></div>
+              <div className="big-stat"><div className="l">Today&apos;s routes</div><div className="v">14</div><div className="s">+3 vs yesterday</div></div>
             </div>
             <div className="panel">
               <div className="panel-h"><h3>Active routes</h3><span className="sub">· auto-refresh 4s</span><span className="right btn-link">Export {ICO.ext}</span></div>
@@ -1363,7 +1363,7 @@ function WalletPage({ view }: { view: ReturnType<typeof buildView> }) {
         <div className="side-group">
           <div className="head">View<span className="chev">{ICO.chev_up}</span></div>
           <div className="body">
-            {[['holdings','Holdings',true],['activity','Activity',false],['apps','dApp connections',false],['approvals','Approvals',false]].map(([k,l,on])=>(
+            {[['holdings','Holdings',true],['activity','Activity',false],['apps','dApp connections',false],['approvals','Approvals',false]].map(([k,l])=>(
               <div key={k as string} className={`side-item${tab===k?' on':''}`} onClick={()=>setTab(k as string)}><span>{l as string}</span></div>
             ))}
           </div>
@@ -1603,11 +1603,11 @@ function HelpPage() {
             <span className="pill green" style={{marginLeft:'auto'}}><span className="dot"/>Online</span>
           </div>
           <div className="chat-thread">
-            <div className="bubble you"><div className="who">You · 2m</div>My ETH→wstETH route has been on "Bridge via Stargate" for 8 minutes. Is something wrong?</div>
+            <div className="bubble you"><div className="who">You · 2m</div>My ETH→wstETH route has been on &quot;Bridge via Stargate&quot; for 8 minutes. Is something wrong?</div>
             <div className="bubble bot"><div className="who">Maya · Meridian Support · 1m</div>Hi! I can see route <b className="mono">r-9214</b> on your account. Stargate is currently averaging 4-6 minute settlement on the ETH→ARB lane, but the destination chain processed a large block recently. You should see it settle in the next ~2 min — no action needed.</div>
-            <div className="bubble bot"><div className="who">Maya · Meridian Support · 1m</div>I'll keep this thread open until it settles. If it's still stuck after 15 minutes, we can manually refund the source funds — Meridian's smart contract handles it without a wallet signature.</div>
+            <div className="bubble bot"><div className="who">Maya · Meridian Support · 1m</div>I&apos;ll keep this thread open until it settles. If it&apos;s still stuck after 15 minutes, we can manually refund the source funds — Meridian&apos;s smart contract handles it without a wallet signature.</div>
             <div className="bubble you"><div className="who">You · just now</div>Got it, thanks. Are bridge times normally this variable?</div>
-            <div className="bubble bot"><div className="who">Maya · Meridian Support · just now</div>For canonical bridges (Stargate, Hop, Across) — yes, 4-12 minutes is normal. The "ETA" shown in your route card is a 7-day average; we'll be adding p95 figures next week so you can see worst-case at a glance.</div>
+            <div className="bubble bot"><div className="who">Maya · Meridian Support · just now</div>For canonical bridges (Stargate, Hop, Across) — yes, 4-12 minutes is normal. The &quot;ETA&quot; shown in your route card is a 7-day average; we&apos;ll be adding p95 figures next week so you can see worst-case at a glance.</div>
           </div>
           <div className="chat-foot">
             <input type="text" placeholder="Reply to Maya…"/>
@@ -1684,7 +1684,7 @@ function DocsPage() {
         {kind:'h2', text:'Components'},
         {kind:'p',  text:"Each component contributes between 0 and 25 to the total score. We never combine them into a black-box rating — you can expand any position to see the breakdown."},
         {kind:'code', text:`audit_coverage    0..25   (lower = more audited)\noracle_exposure   0..25   (lower = fewer or harder-to-manipulate oracles)\ntvl_depth         0..25   (lower = deeper, more battle-tested)\nbridge_risk       0..25   (lower = canonical / message-passing bridges)`},
-        {kind:'callout', html:<><b>Important.</b> Risk scores are not predictions. They're a snapshot of structural fragility on the day they're computed. A score of 18 does not mean "this can't go to zero."</>},
+        {kind:'callout', html:<><b>Important.</b> Risk scores are not predictions. They&apos;re a snapshot of structural fragility on the day they&apos;re computed. A score of 18 does not mean &quot;this can&apos;t go to zero.&quot;</>},
       ],
     },
     api: {

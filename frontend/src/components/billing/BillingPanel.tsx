@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '@/src/lib/api';
 import { useAuthStore } from '@/src/stores/auth';
 
 interface Subscription {

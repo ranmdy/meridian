@@ -16,7 +16,7 @@ const ERC20_BALANCE_ABI = [
   },
 ] as const;
 
-const ERC20_DECIMALS_ABI = [
+const _ERC20_DECIMALS_ABI = [
   {
     name: 'decimals',
     type: 'function',
