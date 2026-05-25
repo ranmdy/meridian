@@ -107,9 +107,9 @@ export function StrategyForm() {
   };
 
   return (
-    <div className="glass p-6 space-y-6">
+    <div className="glass p-6 space-y-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-100">Build Your Strategy</h2>
+        <h2 className="text-base font-semibold text-gray-100 tracking-tight">Build Your Strategy</h2>
 
         {/* Auto Mode toggle */}
         <div className="flex items-center gap-2">
@@ -174,7 +174,7 @@ export function StrategyForm() {
           <select
             value={sourceAsset}
             onChange={(e) => setSourceAsset(e.target.value)}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-meridian-500"
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-meridian-500 focus:ring-1 focus:ring-meridian-500/30"
           >
             {ASSETS.map((a) => {
               const detected = detectedAssets.find((d) => d.symbol === a && d.chainId === sourceChain);
@@ -191,7 +191,7 @@ export function StrategyForm() {
           <select
             value={sourceChain}
             onChange={(e) => setSourceChain(Number(e.target.value))}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-meridian-500"
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-meridian-500 focus:ring-1 focus:ring-meridian-500/30"
           >
             {CHAINS.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
@@ -220,13 +220,15 @@ export function StrategyForm() {
         <select
           value={destinationChain}
           onChange={(e) => setDestinationChain(Number(e.target.value))}
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-meridian-500"
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-meridian-500 focus:ring-1 focus:ring-meridian-500/30"
         >
           {CHAINS.filter((c) => c.id !== sourceChain).map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
       </div>
+
+      <div className="h-px bg-gray-800" />
 
       {/* Destination wallet verification */}
       <div>
@@ -250,7 +252,7 @@ export function StrategyForm() {
             value={destinationWallet}
             onChange={(e) => setDestinationWallet(e.target.value)}
             placeholder="0x..."
-            className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 font-mono focus:outline-none focus:border-meridian-500"
+            className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-gray-100 placeholder-gray-500 font-mono focus:outline-none focus:border-meridian-500 focus:ring-1 focus:ring-meridian-500/30"
           />
           <button
             onClick={handleVerifyDestination}
@@ -265,6 +267,8 @@ export function StrategyForm() {
           </button>
         </div>
       </div>
+
+      <div className="h-px bg-gray-800" />
 
       {/* Risk + time horizon */}
       <div className="grid grid-cols-2 gap-4">
@@ -289,7 +293,7 @@ export function StrategyForm() {
             max={3650}
             value={timeHorizonDays}
             onChange={(e) => setTimeHorizonDays(Number(e.target.value))}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-meridian-500"
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-meridian-500 focus:ring-1 focus:ring-meridian-500/30"
           />
         </div>
       </div>
@@ -302,7 +306,7 @@ export function StrategyForm() {
         onClick={handleOptimize}
         disabled={!canOptimize || isOptimizing}
         data-optimize-btn
-        className="w-full bg-meridian-600 hover:bg-meridian-500 disabled:opacity-40 disabled:cursor-not-allowed text-white py-3 rounded-lg font-medium transition-colors"
+        className="w-full bg-meridian-600 hover:bg-meridian-500 disabled:opacity-40 disabled:cursor-not-allowed text-white py-3 rounded-lg font-semibold transition-colors text-sm"
       >
         {isOptimizing
           ? mode === 'auto' ? 'Auto-selecting best route…' : 'Finding best routes…'
