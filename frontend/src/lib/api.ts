@@ -157,6 +157,33 @@ export const api = {
       post<SimulationResult>('/strategy/simulate', { routeIndex, fromAddress, sourceChain }),
     status: (executionId: string) =>
       get<ExecutionStatus>(`/strategy/${executionId}/status`),
+    execute: (req: {
+      strategyId: string;
+      walletAddress: string;
+      sourceAsset: string;
+      sourceChain: number;
+      destinationChain: number;
+      sourceAmountUsd: number;
+      stepCount: number;
+      initialTxHash?: string;
+      quoteExpiresAt?: number;
+    }) => post<{ executionId: string; strategyId: string; status: string; totalSteps: number; startedAt: number }>(
+      '/strategy/execute',
+      req,
+    ),
+  },
+  user: {
+    executions: (wallet: string, limit?: number) =>
+      get<{ executions: ExecutionStatus[]; total: number }>(
+        `/user/executions?wallet=${encodeURIComponent(wallet)}${limit ? `&limit=${limit}` : ''}`,
+      ),
+    portfolio: (wallet: string) =>
+      get<{
+        wallet: string;
+        positions: Array<{ chain: number; asset: string; amountUsd: number; count: number }>;
+        totalExecutions: number;
+        completedExecutions: number;
+      }>(`/user/portfolio?wallet=${encodeURIComponent(wallet)}`),
   },
   marketplace: {
     browse: (params?: { sort?: string; chain?: number; maxRisk?: number; minApy?: number; limit?: number; offset?: number }) => {

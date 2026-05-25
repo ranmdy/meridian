@@ -75,6 +75,7 @@ interface ChainSetup {
 
 type StatusListener = (strategyId: string, job: RelayerJob) => void;
 type ReoptimizeCallback = (strategyId: string) => Promise<void>;
+type EmergencyExitListener = (strategyId: string) => void;
 
 // ─── Fallback bridge order ────────────────────────────────────────────────────
 // When a bridge step fails we try the next protocol in this list.
@@ -88,6 +89,7 @@ const LOW_BALANCE_ETH = 0.05;
 export class RelayerManager {
   private jobs = new Map<string, RelayerJob>();
   private listeners: StatusListener[] = [];
+  private emergencyExitListeners: EmergencyExitListener[] = [];
   private reoptimizeCb: ReoptimizeCallback | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private balanceTimer: ReturnType<typeof setInterval> | null = null;
@@ -99,6 +101,11 @@ export class RelayerManager {
   /** Register a callback to receive job status updates (WebSocket bridge). */
   onStatusUpdate(cb: StatusListener) {
     this.listeners.push(cb);
+  }
+
+  /** Register a callback invoked when an EmergencyExitTriggered on-chain event is received. */
+  onEmergencyExit(cb: EmergencyExitListener) {
+    this.emergencyExitListeners.push(cb);
   }
 
   /**
@@ -305,7 +312,22 @@ export class RelayerManager {
         },
       });
 
-      this.unwatchers.push(unwatchStarted, unwatchStep, unwatchCompleted, unwatchFailed);
+      // EmergencyExitTriggered — mark strategy as emergency-exited
+      const unwatchExit = client.watchContractEvent({
+        address: addr,
+        abi: ROUTER_ABI,
+        eventName: 'EmergencyExitTriggered',
+        onLogs: (logs) => {
+          for (const log of logs) {
+            const { strategyId, source } = log.args as { strategyId: Hex; source: Address };
+            console.log(`[Relayer] EmergencyExitTriggered id=${strategyId}`);
+            for (const cb of this.emergencyExitListeners) cb(strategyId);
+            emitWebhookEvent(source, 'EmergencyExitTriggered', strategyId, { chainId });
+          }
+        },
+      });
+
+      this.unwatchers.push(unwatchStarted, unwatchStep, unwatchCompleted, unwatchFailed, unwatchExit);
       subscribed++;
       console.log(`[Relayer] Watching Router at ${addr} on chain ${chainId}`);
     }

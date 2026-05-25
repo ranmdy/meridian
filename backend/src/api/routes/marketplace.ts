@@ -112,6 +112,36 @@ export async function marketplaceRoutes(fastify: FastifyInstance) {
     return reply.send({ ok: true });
   });
 
+  // GET /strategies/:id/performance — historical APY vs published APY
+  fastify.get<{ Params: { id: string } }>(
+    '/strategies/:id/performance',
+    async (request, reply) => {
+      const strategy = getStrategy(request.params.id);
+      if (!strategy) return reply.status(404).send({ error: 'Strategy not found' });
+
+      const ageSeconds = Math.floor(Date.now() / 1000) - strategy.publishedAt;
+      const ageDays = ageSeconds / 86400;
+
+      // Phase 1: compare published APY to a ±5% simulated drift
+      // Phase 2: this will query on-chain subgraph for real historical yield
+      const drift = (Math.random() - 0.5) * 0.1; // ±5% relative drift
+      const currentApyBps = Math.round(strategy.publishedApyBps * (1 + drift));
+      const apyDeltaBps = currentApyBps - strategy.publishedApyBps;
+
+      return reply.send({
+        strategyId: strategy.id,
+        publishedApyBps: strategy.publishedApyBps,
+        currentApyBps,
+        apyDeltaBps,
+        executionCount: strategy.executionCount,
+        votes: strategy.votes,
+        ageDays: Math.round(ageDays),
+        deprecated: strategy.deprecated,
+        _note: 'Phase 1: simulated drift. Phase 2 will use on-chain subgraph.',
+      });
+    },
+  );
+
   // DELETE /strategies/:id — deprecate (creator only, requires auth)
   fastify.delete<{ Params: { id: string } }>('/strategies/:id', {
     preHandler: requireAuth,

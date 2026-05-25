@@ -250,3 +250,28 @@ export function incrementExecutionCount(id: string): void {
     s.updatedAt = Math.floor(Date.now() / 1000);
   }
 }
+
+/**
+ * Auto-curation: when a protocol is flagged as exploited, deprecate all active
+ * marketplace strategies that use that protocol in any step.
+ * Returns the IDs of strategies that were deprecated.
+ */
+export function flagExploitedStrategies(protocol: string): string[] {
+  const deprecated: string[] = [];
+  const now = Math.floor(Date.now() / 1000);
+
+  for (const s of store.values()) {
+    if (s.deprecated) continue;
+    const usesProtocol = s.route.steps.some(
+      (step) => step.protocol.toLowerCase() === protocol.toLowerCase(),
+    );
+    if (usesProtocol) {
+      s.deprecated = true;
+      s.updatedAt = now;
+      deprecated.push(s.id);
+      console.log(`[Marketplace] Auto-deprecated strategy ${s.id} (${s.name}) — protocol ${protocol} flagged as exploited`);
+    }
+  }
+
+  return deprecated;
+}

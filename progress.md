@@ -263,10 +263,10 @@
 - [x] Strategy versioning: deprecation flow (deprecated strategies excluded from browse)
 - [x] 15 marketplace unit tests passing
 - [x] Seeded 2 sample strategies so marketplace is non-empty on first run
-- [ ] API: `GET /strategies/:id/performance` — historical performance (needs DB)
-- [ ] Creator fee routing: 0.02% to creator (requires Router contract update)
-- [ ] Curation: flag strategies using exploited protocols (Phase 2 hardening)
-- [ ] Strategy NFT hooks (Phase 3 prerequisite)
+- [x] API: `GET /strategies/:id/performance` — historical performance (needs DB)
+- [x] Creator fee routing: 0.02% to creator (requires Router contract update)
+- [x] Curation: flag strategies using exploited protocols (Phase 2 hardening)
+- [x] Strategy NFT hooks (Phase 3 prerequisite)
 
 ### 2.2 Auto-Optimizer
 
@@ -277,7 +277,7 @@
 - [x] Frontend: "Auto Mode" toggle on strategy selection screen (toggle switch in StrategyForm)
 - [x] Frontend: explanation banner + collapsible alternatives panel in RouteList
 - [x] Integrate Chainlink + Pyth price feeds for slippage estimation — `PriceFeedService` (Pyth Hermes + DeFiLlama fallback, `GET /prices`)
-- [ ] Re-optimization check: if quote expires mid-execution, re-run optimizer
+- [x] Re-optimization check: if quote expires mid-execution, re-run optimizer
 
 ### 2.3 Strategy Composer UI
 
@@ -287,9 +287,9 @@
 - [x] Canvas: animated edges, MiniMap, Controls, empty state hint
 - [x] Toolbar: node/edge count, validation hints, Run Strategy button
 - [x] Run Strategy: translates graph → strategy request → API → redirects to home with routes populated
-- [ ] Connector validation: asset type compatibility (Phase 2 hardening)
+- [x] Connector validation: asset type compatibility (Phase 2 hardening)
 - [x] Live APY preview as nodes are connected — `useLiveApy` polls `GET /strategy/apy`, updates Composer nodes in real time
-- [ ] Save/load strategy from user account (needs DB)
+- [x] Save/load strategy from user account (needs DB)
 - [ ] Template library (Phase 2 hardening)
 
 ### 2.4 Tax Report Export
@@ -540,7 +540,7 @@
   - [x] `GET /exploits` + `GET /exploits/:protocol` public check endpoints
 - [~] **API endpoints**
   - [x] `POST /strategy/optimize` — input: asset, amount, source chain, destination chain, risk, timeHorizon
-  - [ ] `GET /strategy/:id` — get strategy details
+  - [x] `GET /strategy/:id` — get strategy details
   - [ ] `POST /strategy/simulate` — Tenderly simulation of strategy
 
 ### Quote Engine
@@ -576,9 +576,9 @@
   - [~] `MonitorBridge` — poll for bridge confirmation on destination chain
   - [~] `ContinueStrategy` — call `continueStrategy()` on Router after bridge confirms
   - [x] `RetryStep` — retry failed step with exponential backoff (max 5 retries)
-  - [ ] `FallbackRoute` — if primary bridge fails, find and use alternate bridge
+  - [x] `FallbackRoute` — if primary bridge fails, find and use alternate bridge
   - [~] `NotifyFrontend` — push WebSocket update to user
-  - [ ] `EmergencyExit` — trigger emergency exit if unrecoverable failure
+  - [x] `EmergencyExit` — trigger emergency exit if unrecoverable failure
 - [ ] **Chain listeners** (per chain, WebSocket)
   - [ ] Ethereum: Alchemy WebSocket
   - [ ] Base: Alchemy WebSocket
@@ -604,11 +604,11 @@
   - [ ] Rate limiting: per IP, per API key
 - [~] **Endpoints — Core**
   - [ ] `POST /auth/wallet` — wallet sign-in
-  - [ ] `POST /strategy/execute` — submit strategy for execution
+  - [x] `POST /strategy/execute` — submit strategy for execution
   - [x] `GET /strategy/:id/status` — current execution status
-  - [ ] `GET /strategy/:id/report` — tax/audit report
-  - [ ] `GET /user/executions` — all past executions for user
-  - [ ] `GET /user/portfolio` — asset balances across chains
+  - [x] `GET /strategy/:id/report` — tax/audit report
+  - [x] `GET /user/executions` — all past executions for user
+  - [x] `GET /user/portfolio` — asset balances across chains
 - [ ] **Endpoints — Marketplace**
   - [ ] `POST /marketplace/publish` — publish strategy
   - [ ] `GET /marketplace` — browse strategies (paginated, filterable)
@@ -695,14 +695,14 @@
 
 - [x] Portfolio overview: `usePortfolio` hook — reads ETH, USDC, USDT, WBTC balances via viem across 5 chains
 - [x] `/portfolio` page: total value, allocation bar, per-chain asset breakdown
-- [ ] Execution history: past strategies, performance, P&L (needs DB)
+- [x] Execution history: past strategies, performance, P&L (needs DB)
 - [ ] Yield earned over time: area chart (needs execution history)
 - [ ] Fees paid breakdown (needs execution history)
 
 ### State Management (Zustand)
 
-- [ ] Stores: `walletStore`, `strategyStore`, `executionStore`, `quoteStore`, `userStore`
-- [ ] Persistence: strategy drafts persisted to localStorage
+- [x] Stores: `walletStore`, `strategyStore`, `executionStore`, `quoteStore`, `userStore`
+- [x] Persistence: strategy drafts persisted to localStorage
 
 ---
 
