@@ -103,11 +103,11 @@ export function TemplateLibrary() {
   return (
     <div className="glass p-6 space-y-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-100">Strategy Templates</h2>
+        <h2 className="text-base font-semibold text-gray-100 tracking-tight">Strategy Templates</h2>
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value as 'popular' | 'apy' | 'risk')}
-          className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-2 py-1 focus:outline-none"
+          className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-meridian-500"
         >
           <option value="popular">Most Popular</option>
           <option value="apy">Highest APY</option>
@@ -144,15 +144,18 @@ export function TemplateLibrary() {
 
       {/* Template cards */}
       {loading ? (
-        <div className="text-gray-500 text-sm text-center py-6">Loading templates…</div>
+        <div className="flex items-center justify-center gap-2 py-8 text-sm text-gray-500">
+          <span className="inline-block w-4 h-4 border-2 border-gray-600 border-t-meridian-500 rounded-full animate-spin" />
+          Loading templates…
+        </div>
       ) : templates.length === 0 ? (
-        <div className="text-gray-500 text-sm text-center py-6">No templates found.</div>
+        <div className="text-gray-600 text-sm text-center py-8">No templates found.</div>
       ) : (
         <div className="grid grid-cols-1 gap-3">
           {templates.map((t) => (
             <div
               key={t.id}
-              className="bg-gray-900/60 border border-gray-800 rounded-xl p-4 hover:border-gray-700 transition-colors"
+              className="bg-gray-900/40 border border-gray-800 rounded-xl p-4 hover:border-gray-700 hover:bg-gray-900/60 transition-all"
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
@@ -164,7 +167,7 @@ export function TemplateLibrary() {
                   </div>
                   <p className="text-xs text-gray-400 mb-2 leading-relaxed">{t.description}</p>
                   <div className="flex items-center gap-3 text-xs flex-wrap">
-                    <span className="text-meridian-400 font-semibold">
+                    <span className="text-meridian-400 font-semibold tabular-nums">
                       ~{(t.estimatedApyBps / 100).toFixed(1)}% APY
                     </span>
                     <span className="text-gray-600">·</span>
@@ -188,7 +191,7 @@ export function TemplateLibrary() {
                 </div>
                 <button
                   onClick={() => handleUseTemplate(t)}
-                  className="flex-shrink-0 px-3 py-1.5 bg-meridian-700 hover:bg-meridian-600 text-white text-xs rounded-lg font-medium transition-colors"
+                  className="flex-shrink-0 px-3 py-1.5 bg-meridian-600 hover:bg-meridian-500 text-white text-xs rounded-lg font-semibold transition-colors"
                 >
                   Use
                 </button>
