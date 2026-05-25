@@ -230,10 +230,20 @@ export function StrategyForm() {
 
       {/* Destination wallet verification */}
       <div>
-        <label className="block text-xs text-gray-400 mb-1">
-          Destination Wallet{' '}
-          <span className="text-yellow-500 text-xs">(must be yours — verified by signature)</span>
-        </label>
+        <div className="flex items-center justify-between mb-1">
+          <label className="block text-xs text-gray-400">
+            Destination Wallet{' '}
+            <span className="text-yellow-500">(must be yours — verified by signature)</span>
+          </label>
+          {address && (
+            <button
+              onClick={() => setDestinationWallet(address)}
+              className="text-xs text-meridian-400 hover:text-meridian-300 transition-colors"
+            >
+              Use my wallet
+            </button>
+          )}
+        </div>
         <div className="flex gap-2">
           <input
             type="text"

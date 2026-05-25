@@ -164,6 +164,9 @@ jobs:
       - name: ESLint
         run: pnpm lint
 
+      - name: Unit tests
+        run: pnpm test
+
       - name: Build
         run: pnpm build
         env:

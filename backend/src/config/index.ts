@@ -32,15 +32,16 @@ export const config = {
   },
 
   chains: {
-    ethereum:  { id: 1,      rpcUrl: process.env.ETH_RPC_URL    ?? '' },
-    base:      { id: 8453,   rpcUrl: process.env.BASE_RPC_URL   ?? '' },
-    arbitrum:  { id: 42161,  rpcUrl: process.env.ARB_RPC_URL    ?? '' },
-    bnb:       { id: 56,     rpcUrl: process.env.BNB_RPC_URL    ?? '' },
-    polygon:   { id: 137,    rpcUrl: process.env.POLY_RPC_URL   ?? '' },
-    optimism:  { id: 10,     rpcUrl: process.env.OPT_RPC_URL    ?? '' },
-    avalanche: { id: 43114,  rpcUrl: process.env.AVAX_RPC_URL   ?? '' },
-    scroll:    { id: 534352, rpcUrl: process.env.SCROLL_RPC_URL ?? '' },
-    zkSync:    { id: 324,    rpcUrl: process.env.ZKSYNC_RPC_URL ?? '' },
+    // Primary: Alchemy — fallback: QuickNode (set *_RPC_URL_FALLBACK env vars)
+    ethereum:  { id: 1,      rpcUrl: process.env.ETH_RPC_URL    ?? '', fallbackRpcUrl: process.env.ETH_RPC_URL_FALLBACK    ?? '' },
+    base:      { id: 8453,   rpcUrl: process.env.BASE_RPC_URL   ?? '', fallbackRpcUrl: process.env.BASE_RPC_URL_FALLBACK   ?? '' },
+    arbitrum:  { id: 42161,  rpcUrl: process.env.ARB_RPC_URL    ?? '', fallbackRpcUrl: process.env.ARB_RPC_URL_FALLBACK    ?? '' },
+    bnb:       { id: 56,     rpcUrl: process.env.BNB_RPC_URL    ?? '', fallbackRpcUrl: process.env.BNB_RPC_URL_FALLBACK    ?? '' },
+    polygon:   { id: 137,    rpcUrl: process.env.POLY_RPC_URL   ?? '', fallbackRpcUrl: process.env.POLY_RPC_URL_FALLBACK   ?? '' },
+    optimism:  { id: 10,     rpcUrl: process.env.OPT_RPC_URL    ?? '', fallbackRpcUrl: process.env.OPT_RPC_URL_FALLBACK    ?? '' },
+    avalanche: { id: 43114,  rpcUrl: process.env.AVAX_RPC_URL   ?? '', fallbackRpcUrl: process.env.AVAX_RPC_URL_FALLBACK   ?? '' },
+    scroll:    { id: 534352, rpcUrl: process.env.SCROLL_RPC_URL ?? '', fallbackRpcUrl: process.env.SCROLL_RPC_URL_FALLBACK ?? '' },
+    zkSync:    { id: 324,    rpcUrl: process.env.ZKSYNC_RPC_URL ?? '', fallbackRpcUrl: process.env.ZKSYNC_RPC_URL_FALLBACK ?? '' },
   },
 
   tenderly: {

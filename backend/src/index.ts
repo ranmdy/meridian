@@ -18,7 +18,10 @@ import { bridgeListener } from './services/bridge-listener/index.js';
 import { priceFeed } from './services/price-feed/index.js';
 import { priceRoutes } from './api/routes/prices.js';
 import { executionRoutes } from './api/routes/executions.js';
+import { apiKeyRoutes } from './api/routes/api-keys.js';
+import { templateRoutes } from './api/routes/templates.js';
 import { executionRegistry } from './services/execution-registry/index.js';
+import { api as apiMetrics, websocket as wsMetrics, closeMetrics } from './services/metrics/index.js';
 import type { RelayerJob } from './services/relayer/index.js';
 
 const fastify = Fastify({
@@ -37,6 +40,17 @@ const quoteEngine = new QuoteEngine();
 const strategyEngine = new StrategyEngine();
 const relayerManager = new RelayerManager();
 
+// ─── Request latency metrics hook ─────────────────────────────────────────────
+
+fastify.addHook('onResponse', (request, reply, done) => {
+  const route  = request.routeOptions?.url ?? request.url ?? 'unknown';
+  const method = request.method;
+  const status = reply.statusCode;
+  const elapsed = reply.elapsedTime;          // ms since request received
+  apiMetrics.requestDone(route, method, status, elapsed);
+  done();
+});
+
 // ─── Plugins ──────────────────────────────────────────────────────────────────
 
 await fastify.register(cors, {
@@ -53,14 +67,20 @@ await fastify.register(websocket);
 
 // ─── WebSocket: Live execution tracking ──────────────────────────────────────
 
+let _wsConnectionCount = 0;
+
 fastify.get('/ws/strategy/:strategyId', { websocket: true }, (socket, req) => {
   const { strategyId } = req.params as { strategyId: string };
 
   fastify.log.info(`WS client connected for strategy ${strategyId}`);
+  _wsConnectionCount++;
+  wsMetrics.connected();
+  wsMetrics.connections(_wsConnectionCount);
 
   const listener = (sid: string, job: unknown) => {
     if (sid === strategyId) {
       socket.send(JSON.stringify({ type: 'status_update', data: job }));
+      wsMetrics.messageDelivered();
     }
   };
 
@@ -68,11 +88,15 @@ fastify.get('/ws/strategy/:strategyId', { websocket: true }, (socket, req) => {
 
   socket.on('close', () => {
     fastify.log.info(`WS client disconnected for strategy ${strategyId}`);
+    _wsConnectionCount = Math.max(0, _wsConnectionCount - 1);
+    wsMetrics.disconnected();
+    wsMetrics.connections(_wsConnectionCount);
     // In Phase 1: remove listener from map
   });
 
   // Send current status on connect
   socket.send(JSON.stringify({ type: 'connected', strategyId }));
+  wsMetrics.messageDelivered();
 });
 
 // ─── REST Routes ──────────────────────────────────────────────────────────────
@@ -86,6 +110,8 @@ await fastify.register(exploitRoutes);
 await fastify.register(billingRoutes);
 await fastify.register(priceRoutes);
 await fastify.register(executionRoutes, { relayerManager });
+await fastify.register(apiKeyRoutes);
+await fastify.register(templateRoutes);
 
 // Health check
 fastify.get('/health', async () => ({
@@ -158,6 +184,7 @@ const shutdown = async () => {
   stopExploitFeed();
   priceFeed.stop();
   bridgeListener.stop();
+  closeMetrics();
   await fastify.close();
   process.exit(0);
 };

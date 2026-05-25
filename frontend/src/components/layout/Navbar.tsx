@@ -42,6 +42,12 @@ export function Navbar() {
           >
             Billing
           </a>
+          <a
+            href="/settings"
+            className="hidden sm:block text-sm text-gray-400 hover:text-gray-200 transition-colors"
+          >
+            API Keys
+          </a>
           <SignInButton />
           <SolanaConnectButton />
           <ConnectButton />

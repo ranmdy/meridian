@@ -6,6 +6,7 @@ import {
   verifyJwt,
   type JwtPayload,
 } from '../../services/auth/index.js';
+import { getSubscription, type SubscriptionTier } from '../../services/stripe/index.js';
 
 const VerifySchema = z.object({
   nonce: z.string().min(1),
@@ -50,6 +51,41 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
   } catch {
     return reply.status(401).send({ error: 'Invalid or expired token' });
   }
+}
+
+/**
+ * Factory: returns a middleware that requires the authenticated user to be on
+ * the given tier (or higher). Tier order: free < pro < api.
+ *
+ * Usage:
+ *   fastify.get('/premium', { preHandler: [requireAuth, requireTier('pro')] }, ...)
+ */
+export function requireTier(minTier: SubscriptionTier) {
+  const tierRank: Record<SubscriptionTier, number> = { free: 0, pro: 1, api: 2 };
+
+  return async function tierGate(request: FastifyRequest, reply: FastifyReply) {
+    const wallet = request.user?.sub;
+    if (!wallet) {
+      return reply.status(401).send({ error: 'Authentication required' });
+    }
+
+    const sub = getSubscription(wallet);
+    const currentTier: SubscriptionTier = sub?.tier ?? 'free';
+    const currentStatus = sub?.status ?? 'active';
+
+    if (
+      tierRank[currentTier] < tierRank[minTier] ||
+      (currentStatus !== 'active' && currentStatus !== 'trialing')
+    ) {
+      return reply.status(403).send({
+        error: 'Subscription required',
+        message: `This endpoint requires a ${minTier} subscription or higher.`,
+        requiredTier: minTier,
+        currentTier,
+        upgradeUrl: '/billing',
+      });
+    }
+  };
 }
 
 export async function authRoutes(fastify: FastifyInstance) {

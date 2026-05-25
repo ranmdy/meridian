@@ -5,6 +5,7 @@ import type { StrategyEngine } from '../../services/strategy-engine/index.js';
 import type { QuoteEngine } from '../../services/quote-engine/index.js';
 import { SimulationService } from '../../services/simulation/index.js';
 import { tieredRateLimit } from '../../services/rateLimit/index.js';
+import { requireAuth, requireTier } from './auth.js';
 
 const simulationService = new SimulationService();
 
@@ -175,6 +176,114 @@ export async function strategyRoutes(
       alternatives: result.routes.filter((_, i) => i !== best.index),
       simulatedAt: result.simulatedAt,
       quoteExpiresAt: result.quoteExpiresAt,
+    });
+  });
+
+  // POST /strategy/compose — programmatic strategy composition (API key clients, no UI)
+  // Accepts a custom steps array, validates it, enriches with live quotes, returns a Route.
+  // Requires: auth + pro subscription (or API tier).
+  fastify.post('/strategy/compose', { preHandler: [requireAuth, requireTier('pro'), tieredRateLimit] }, async (request, reply) => {
+    const StepSchema = z.object({
+      stepType: z.enum(['SWAP', 'BRIDGE', 'LEND', 'STAKE', 'SETTLE']),
+      protocol: z.string().min(1),
+      protocolAddress: z.string().default('0x0000000000000000000000000000000000000000'),
+      fromAsset: z.string().min(1),
+      toAsset: z.string().min(1),
+      fromChain: z.number().int().positive(),
+      toChain: z.number().int().positive(),
+      estimatedOutput: z.number().positive().optional(),
+      gasEstimateUsd: z.number().nonnegative().optional(),
+      bridgeFeeUsd: z.number().nonnegative().optional(),
+      slippageBps: z.number().nonnegative().optional(),
+      apyBps: z.number().nonnegative().optional(),
+    });
+
+    const ComposeSchema = z.object({
+      steps: z.array(StepSchema).min(1).max(10),
+      simulate: z.boolean().optional().default(false),
+      fromAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional(),
+    });
+
+    const parsed = ComposeSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+
+    const { steps, simulate: runSim, fromAddress } = parsed.data;
+
+    // Validate step connectivity: each step's toAsset/toChain must match next step's fromAsset/fromChain
+    for (let i = 0; i < steps.length - 1; i++) {
+      const cur = steps[i];
+      const next = steps[i + 1];
+      if (cur.toChain !== next.fromChain) {
+        return reply.status(422).send({
+          error: 'Step chain mismatch',
+          message: `Step ${i} toChain (${cur.toChain}) does not match step ${i + 1} fromChain (${next.fromChain}). Add a bridge step between them.`,
+        });
+      }
+      if (cur.toAsset !== next.fromAsset) {
+        return reply.status(422).send({
+          error: 'Step asset mismatch',
+          message: `Step ${i} toAsset (${cur.toAsset}) does not match step ${i + 1} fromAsset (${next.fromAsset}). Add a swap step between them.`,
+        });
+      }
+    }
+
+    // Enrich steps with live quote data where available
+    const now = Math.floor(Date.now() / 1000);
+    const enrichedSteps = steps.map((s) => {
+      const apyQuote = opts.quoteEngine.getApyQuote(s.protocol, s.fromChain, s.fromAsset);
+      const gasQuote = opts.quoteEngine.getGasQuote(s.fromChain);
+      return {
+        stepType: s.stepType,
+        protocol: s.protocol,
+        protocolAddress: s.protocolAddress,
+        fromAsset: s.fromAsset,
+        toAsset: s.toAsset,
+        fromChain: s.fromChain,
+        toChain: s.toChain,
+        estimatedOutput: s.estimatedOutput ?? 0,
+        gasEstimateUsd: s.gasEstimateUsd ?? gasQuote?.typicalTxUsd ?? 2,
+        bridgeFeeUsd: s.bridgeFeeUsd ?? 0,
+        slippageBps: s.slippageBps ?? 30,
+        apyBps: s.apyBps ?? apyQuote?.supplyApyBps ?? 0,
+      };
+    });
+
+    const totalGasUsd = enrichedSteps.reduce((acc, s) => acc + s.gasEstimateUsd, 0);
+    const totalBridgeFeeUsd = enrichedSteps.reduce((acc, s) => acc + s.bridgeFeeUsd, 0);
+    const bridgeCount = enrichedSteps.filter((s) => s.stepType === 'BRIDGE').length;
+    const estimatedApyBps = enrichedSteps
+      .filter((s) => s.apyBps > 0)
+      .reduce((acc, s) => acc + s.apyBps, 0);
+
+    // Simple risk score: higher bridge count + higher slippage = higher risk
+    const avgSlippage = enrichedSteps.reduce((acc, s) => acc + s.slippageBps, 0) / enrichedSteps.length;
+    const riskScore = Math.min(100, bridgeCount * 15 + Math.floor(avgSlippage / 10));
+
+    const route = {
+      steps: enrichedSteps,
+      totalScore: estimatedApyBps - riskScore * 10 - totalGasUsd * 100 - totalBridgeFeeUsd * 100,
+      estimatedApyBps,
+      totalGasUsd,
+      totalBridgeFeeUsd,
+      totalProtocolFeeUsd: 0,
+      estimatedTimeSeconds: steps.length * 60 + bridgeCount * 300,
+      hopCount: steps.length,
+      bridgeCount,
+      riskScore,
+    };
+
+    let simulation = null;
+    if (runSim && fromAddress) {
+      simulation = await simulationService.simulate(route, fromAddress, enrichedSteps[0].fromChain);
+    }
+
+    return reply.send({
+      route,
+      simulation: simulation ?? undefined,
+      composedAt: now,
+      quoteExpiresAt: now + 60,
     });
   });
 
