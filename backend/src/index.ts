@@ -17,6 +17,9 @@ import { billingRoutes } from './api/routes/billing.js';
 import { bridgeListener } from './services/bridge-listener/index.js';
 import { priceFeed } from './services/price-feed/index.js';
 import { priceRoutes } from './api/routes/prices.js';
+import { executionRoutes } from './api/routes/executions.js';
+import { executionRegistry } from './services/execution-registry/index.js';
+import type { RelayerJob } from './services/relayer/index.js';
 
 const fastify = Fastify({
   logger: {
@@ -82,6 +85,7 @@ await fastify.register(webhookRoutes);
 await fastify.register(exploitRoutes);
 await fastify.register(billingRoutes);
 await fastify.register(priceRoutes);
+await fastify.register(executionRoutes, { relayerManager });
 
 // Health check
 fastify.get('/health', async () => ({
@@ -96,6 +100,41 @@ const start = async () => {
   try {
     // Wire live APY data into the strategy engine graph after each quote poll
     quoteEngine.onApyRefresh((quotes) => strategyEngine.refreshFromQuotes(quotes));
+
+    // Wire emergency exit events → execution registry
+    relayerManager.onEmergencyExit((strategyId: string) => {
+      executionRegistry.emergencyExit(strategyId);
+    });
+
+    // Wire relayer status events → execution registry
+    relayerManager.onStatusUpdate((strategyId: string, job: RelayerJob) => {
+      switch (job.status) {
+        case 'running':
+          executionRegistry.updateStep(strategyId, job.stepIndex, 'in_progress', {
+            txHash: job.bridgeTxHash || undefined,
+            chain: job.destinationChain,
+          });
+          break;
+        case 'done': {
+          const execStatus = executionRegistry.getStatus(strategyId);
+          if (execStatus && job.stepIndex >= execStatus.totalSteps - 1) {
+            executionRegistry.complete(strategyId);
+          } else {
+            executionRegistry.updateStep(strategyId, job.stepIndex, 'done', {
+              txHash: job.bridgeTxHash || undefined,
+              chain: job.destinationChain,
+              completedAt: Math.floor(job.updatedAt / 1000),
+            });
+          }
+          break;
+        }
+        case 'failed':
+          executionRegistry.fail(strategyId, job.lastError ?? 'Unknown error');
+          break;
+        default:
+          break;
+      }
+    });
 
     quoteEngine.start();
     await relayerManager.start();

@@ -9,6 +9,8 @@ import {
 } from 'wagmi';
 import { parseUnits, decodeEventLog, maxUint256 } from 'viem';
 import { useStrategyStore } from '@/src/stores/strategy';
+import { useExecutionStore } from '@/src/stores/execution';
+import { api } from '@/src/lib/api';
 import {
   ROUTER_ABI,
   ERC20_ABI,
@@ -51,9 +53,14 @@ export function useExecuteStrategy() {
     selectedRouteIndex,
     sourceAsset,
     sourceAmountUsd,
+    sourceChain,
+    destinationChain,
+    quoteExpiresAt,
     destinationWallet,
     destinationSignature,
   } = useStrategyStore();
+
+  const { setActiveExecution } = useExecutionStore();
 
   const selectedRoute = routes[selectedRouteIndex];
   const isEth = sourceAsset === 'ETH';
@@ -82,7 +89,7 @@ export function useExecuteStrategy() {
   const { isLoading: awaitingExecution, data: executionReceipt } =
     useWaitForTransactionReceipt({ hash: executionTxHash });
 
-  // Parse strategyId from StrategyStarted log once receipt lands
+  // Parse strategyId from StrategyStarted log once receipt lands, then register with backend
   if (executionReceipt && !strategyId) {
     for (const log of executionReceipt.logs) {
       try {
@@ -92,7 +99,30 @@ export function useExecuteStrategy() {
           data: log.data,
           topics: log.topics,
         });
-        setStrategyId(decoded.args.strategyId as `0x${string}`);
+        const parsedId = decoded.args.strategyId as `0x${string}`;
+        setStrategyId(parsedId);
+
+        // Register execution with backend so GET /strategy/:id/status works
+        if (userAddress && selectedRoute) {
+          api.strategy.execute({
+            strategyId: parsedId,
+            walletAddress: userAddress,
+            sourceAsset,
+            sourceChain: sourceChain ?? chain?.id ?? 1,
+            destinationChain: destinationChain,
+            sourceAmountUsd,
+            stepCount: selectedRoute.steps.length,
+            initialTxHash: executionTxHash,
+            quoteExpiresAt: quoteExpiresAt ?? undefined,
+          }).then(() => {
+            setActiveExecution(parsedId);
+          }).catch((err: Error) => {
+            console.warn('[useExecuteStrategy] Failed to register execution:', err.message);
+            // Still track locally even if backend registration fails
+            setActiveExecution(parsedId);
+          });
+        }
+
         setStage('success');
         break;
       } catch {
@@ -183,8 +213,9 @@ export function useExecuteStrategy() {
     }
   }, [
     selectedRoute, chain, userAddress, sourceAsset, sourceAmountUsd,
+    sourceChain, destinationChain, quoteExpiresAt, executionTxHash,
     destinationWallet, destinationSignature, isEth, tokenAddress,
-    routerAddress, refetchAllowance, writeApprove, writeExecute,
+    routerAddress, refetchAllowance, writeApprove, writeExecute, setActiveExecution,
   ]);
 
   return {
@@ -203,6 +234,7 @@ export function useExecuteStrategy() {
     awaitingExecution,
     error,
     reset,
+    selectedRoute,
   };
 }
 

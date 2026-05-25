@@ -4,6 +4,18 @@ import type { Route, StrategyOptimizeRequest } from '@/src/lib/api';
 
 export type OptimizeMode = 'manual' | 'auto';
 
+export interface SavedStrategy {
+  id: string;
+  name: string;
+  savedAt: number;
+  sourceAsset: string;
+  sourceChain: number;
+  sourceAmountUsd: number;
+  destinationChain: number;
+  riskTolerance: 1 | 2 | 3 | 4 | 5;
+  timeHorizonDays: number;
+}
+
 interface StrategyState {
   // Current strategy form inputs
   sourceAsset: string;
@@ -27,6 +39,12 @@ interface StrategyState {
   mode: OptimizeMode;
   autoExplanation: string | null;
   autoAlternatives: Route[];
+
+  // Saved strategies (localStorage)
+  savedStrategies: SavedStrategy[];
+  saveStrategy: (name: string) => void;
+  loadStrategy: (id: string) => void;
+  deleteSavedStrategy: (id: string) => void;
 
   // Actions
   setSourceAsset: (asset: string) => void;
@@ -65,12 +83,49 @@ const defaults = {
   mode: 'manual' as OptimizeMode,
   autoExplanation: null as string | null,
   autoAlternatives: [] as Route[],
+  savedStrategies: [] as SavedStrategy[],
 };
 
 export const useStrategyStore = create<StrategyState>()(
   persist(
     (set, get) => ({
       ...defaults,
+
+      saveStrategy: (name) => {
+        const s = get();
+        const entry: SavedStrategy = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          name,
+          savedAt: Date.now(),
+          sourceAsset: s.sourceAsset,
+          sourceChain: s.sourceChain,
+          sourceAmountUsd: s.sourceAmountUsd,
+          destinationChain: s.destinationChain,
+          riskTolerance: s.riskTolerance,
+          timeHorizonDays: s.timeHorizonDays,
+        };
+        set({ savedStrategies: [entry, ...s.savedStrategies].slice(0, 50) });
+      },
+
+      loadStrategy: (id) => {
+        const { savedStrategies } = get();
+        const entry = savedStrategies.find((s) => s.id === id);
+        if (!entry) return;
+        set({
+          sourceAsset: entry.sourceAsset,
+          sourceChain: entry.sourceChain,
+          sourceAmountUsd: entry.sourceAmountUsd,
+          destinationChain: entry.destinationChain,
+          riskTolerance: entry.riskTolerance,
+          timeHorizonDays: entry.timeHorizonDays,
+          routes: [],
+          selectedRouteIndex: 0,
+          optimizeError: null,
+        });
+      },
+
+      deleteSavedStrategy: (id) =>
+        set((s) => ({ savedStrategies: s.savedStrategies.filter((e) => e.id !== id) })),
 
       setSourceAsset: (sourceAsset) => set({ sourceAsset }),
       setSourceChain: (sourceChain) => set({ sourceChain }),
@@ -114,6 +169,7 @@ export const useStrategyStore = create<StrategyState>()(
         destinationChain: s.destinationChain,
         riskTolerance: s.riskTolerance,
         timeHorizonDays: s.timeHorizonDays,
+        savedStrategies: s.savedStrategies,
       }),
     },
   ),

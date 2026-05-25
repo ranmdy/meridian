@@ -18,7 +18,8 @@ export type WebhookEvent =
   | 'StrategyStarted'
   | 'StepExecuted'
   | 'StrategyCompleted'
-  | 'StrategyFailed';
+  | 'StrategyFailed'
+  | 'EmergencyExitTriggered';
 
 export interface WebhookRegistration {
   id: string;

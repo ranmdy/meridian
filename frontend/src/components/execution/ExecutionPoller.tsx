@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@/src/lib/api';
 import type { ExecutionStatus } from '@/src/lib/api';
+import { useExecutionStore } from '@/src/stores/execution';
 import { StepTracker } from './StepTracker';
 import { SettlementScreen } from './SettlementScreen';
 
@@ -15,10 +16,16 @@ const TERMINAL_STATES = new Set(['completed', 'failed', 'emergency_exited']);
 const POLL_INTERVAL_MS = 3000;
 
 export function ExecutionPoller({ executionId, showSettlement = true }: ExecutionPollerProps) {
-  const [status, setStatus] = useState<ExecutionStatus | null>(null);
+  const { activeStatus, updateStatus } = useExecutionStore();
+  const [status, setStatus] = useState<ExecutionStatus | null>(activeStatus);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  const setAndStore = (s: ExecutionStatus) => {
+    setStatus(s);
+    updateStatus(s);
+  };
 
   useEffect(() => {
     let active = true;
@@ -35,7 +42,7 @@ export function ExecutionPoller({ executionId, showSettlement = true }: Executio
         const msg = JSON.parse(event.data) as { type: string; data?: ExecutionStatus };
         if (msg.type === 'status_update' || msg.type === 'strategy_complete' || msg.type === 'strategy_failed') {
           void api.strategy.status(executionId).then((s) => {
-            if (active) setStatus(s);
+            if (active) setAndStore(s);
           });
         }
       };
@@ -62,7 +69,7 @@ export function ExecutionPoller({ executionId, showSettlement = true }: Executio
         if (!active) return;
         try {
           const s = await api.strategy.status(executionId);
-          setStatus(s);
+          setAndStore(s);
           if (!TERMINAL_STATES.has(s.status)) {
             timerRef.current = setTimeout(() => void poll(), POLL_INTERVAL_MS);
           }
@@ -75,7 +82,7 @@ export function ExecutionPoller({ executionId, showSettlement = true }: Executio
 
     // Initial fetch regardless of WS
     void api.strategy.status(executionId).then((s) => {
-      if (active) setStatus(s);
+      if (active) setAndStore(s);
     }).catch((err: unknown) => {
       if (active) setError(err instanceof Error ? err.message : 'Failed to fetch status');
     });

@@ -118,18 +118,55 @@ export function StrategyComposer() {
 
   const onConnect = useCallback(
     (connection: Connection) => {
+      const sourceNode = nodes.find((n) => n.id === connection.source);
+      const targetNode = nodes.find((n) => n.id === connection.target);
+
+      if (!sourceNode || !targetNode) return;
+
+      const src = sourceNode.data as ComposerNodeData;
+      const tgt = targetNode.data as ComposerNodeData;
+
+      // Structural rules
+      if (tgt.kind === 'wallet') {
+        setError('Wallet nodes cannot be a connection target — they are always sources.');
+        return;
+      }
+      if (src.kind === 'lend' || src.kind === 'stake') {
+        setError('Lend/Stake nodes are terminal — they cannot be a connection source.');
+        return;
+      }
+
+      // Cross-chain without a bridge
+      if (src.chain !== tgt.chain && src.kind !== 'bridge' && tgt.kind !== 'bridge') {
+        setError(
+          `Cross-chain connection requires a Bridge node between ${src.chainName} and ${tgt.chainName}.`,
+        );
+        return;
+      }
+
+      // Asset compatibility: swaps change the asset intentionally; everything else must match
+      const swapInvolved = src.kind === 'swap' || tgt.kind === 'swap';
+      if (!swapInvolved && src.asset !== tgt.asset) {
+        setError(
+          `Asset mismatch: ${src.asset} → ${tgt.asset}. ` +
+          `Add a Swap node to convert between assets, or connect nodes with the same asset.`,
+        );
+        return;
+      }
+
+      setError(null);
       setEdges((eds) =>
         addEdge(
           {
             ...connection,
             animated: true,
-            style: { stroke: '#6366f1', strokeWidth: 2 },
+            style: { stroke: swapInvolved ? '#f59e0b' : '#6366f1', strokeWidth: 2 },
           },
           eds,
         ),
       );
     },
-    [setEdges],
+    [nodes, setEdges],
   );
 
   // ── Clear ───────────────────────────────────────────────────────────────────
@@ -146,6 +183,12 @@ export function StrategyComposer() {
     setError(null);
     setIsRunning(true);
 
+    if (nodes.length < 2) {
+      setError('Add at least 2 nodes to define a strategy.');
+      setIsRunning(false);
+      return;
+    }
+
     try {
       // Derive strategy request from the composed graph
       const walletNode = nodes.find((n) => (n.data as ComposerNodeData).kind === 'wallet');
@@ -156,6 +199,15 @@ export function StrategyComposer() {
 
       if (!walletNode || !endNode) {
         setError('Add a wallet source and at least one lend/stake endpoint.');
+        return;
+      }
+
+      // Validate: every node must be connected
+      const connectedIds = new Set(edges.flatMap((e) => [e.source, e.target]));
+      const disconnected = nodes.filter((n) => !connectedIds.has(n.id));
+      if (disconnected.length > 0) {
+        const labels = disconnected.map((n) => (n.data as ComposerNodeData).label).join(', ');
+        setError(`Disconnected nodes: ${labels}. Connect all nodes before running.`);
         return;
       }
 
@@ -178,7 +230,7 @@ export function StrategyComposer() {
     } finally {
       setIsRunning(false);
     }
-  }, [nodes, setRoutes, router]);
+  }, [nodes, edges, setRoutes, router]);
 
   return (
     <div className="flex flex-col h-screen bg-gray-950">
