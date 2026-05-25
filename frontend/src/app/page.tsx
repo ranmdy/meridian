@@ -2,6 +2,7 @@ import { Navbar } from '@/src/components/layout/Navbar';
 import { StrategyForm } from '@/src/components/strategy/StrategyForm';
 import { RouteList } from '@/src/components/strategy/RouteList';
 import { SavedStrategies } from '@/src/components/strategy/SavedStrategies';
+import { TemplateLibrary } from '@/src/components/strategy/TemplateLibrary';
 
 export default function Home() {
   return (
@@ -28,6 +29,7 @@ export default function Home() {
           <div className="space-y-4">
             <StrategyForm />
             <SavedStrategies />
+            <TemplateLibrary />
           </div>
           <RouteList />
         </div>

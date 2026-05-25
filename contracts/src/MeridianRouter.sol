@@ -92,6 +92,13 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     // ─── Core: executeStrategy ────────────────────────────────────────────────
 
     /// @inheritdoc IMeridianRouter
+    /// @notice Initiates execution of a multi-step DeFi strategy.
+    /// @dev    Pulls `strategy.sourceAmount` of `strategy.sourceAsset` from `msg.sender`,
+    ///         deducts the 0.08% protocol fee, then begins synchronous step execution.
+    ///         Pauses at the first BRIDGE step and waits for the off-chain relayer to call
+    ///         `continueStrategy` after the bridge transaction confirms on the destination chain.
+    /// @param  strategy   The fully-specified strategy struct including source asset, amount,
+    ///                    ordered steps, destination wallet, and EIP-191 ownership signature.
     function executeStrategy(Strategy calldata strategy)
         external
         payable
@@ -159,6 +166,11 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     // ─── Core: continueStrategy ───────────────────────────────────────────────
 
     /// @inheritdoc IMeridianRouter
+    /// @notice Called by the off-chain relayer after a bridge step confirms on the destination chain.
+    /// @dev    Only the registered `relayer` address can call this function.
+    ///         `stepIndex` must equal `state.currentStep` to prevent out-of-order execution.
+    /// @param  strategyId   The keccak256 identifier of the strategy (derived in executeStrategy).
+    /// @param  stepIndex    The index of the step that just completed on the source chain.
     function continueStrategy(bytes32 strategyId, uint256 stepIndex)
         external
         override
@@ -189,6 +201,12 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     // ─── Core: emergencyExit ──────────────────────────────────────────────────
 
     /// @inheritdoc IMeridianRouter
+    /// @notice Immediately terminates a stuck strategy and returns funds to the original depositor.
+    /// @dev    Only callable by the original strategy owner (`state.user`).
+    ///         Returns all currently-held tokens to `msg.sender` (the source wallet),
+    ///         NEVER to the destination wallet. Uses CEI pattern — state is updated before
+    ///         the external transfer to prevent reentrancy.
+    /// @param  strategyId   The keccak256 identifier of the strategy to exit.
     function emergencyExit(bytes32 strategyId)
         external
         override
@@ -224,6 +242,11 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     // ─── View ──────────────────────────────────────────────────────────────────
 
     /// @inheritdoc IMeridianRouter
+    /// @notice Returns the current execution state of a strategy.
+    /// @param  strategyId   The keccak256 identifier of the strategy.
+    /// @return currentStep  Index of the next step to execute.
+    /// @return isActive     True if the strategy is in flight.
+    /// @return isFailed     True if the strategy was emergency-exited or failed.
     function strategyStatus(bytes32 strategyId)
         external
         view
@@ -236,13 +259,18 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
 
     // ─── Admin (no user-fund access) ─────────────────────────────────────────
 
-    /// @notice Update the relayer address. Owner-only.
+    /// @notice Update the authorized relayer address.
+    /// @dev    Owner-only. This does NOT affect in-flight strategies — only future
+    ///         `continueStrategy` calls. Rotate immediately if relayer key is compromised.
+    /// @param  newRelayer  New relayer address. Must be non-zero.
     function setRelayer(address newRelayer) external onlyOwner {
         if (newRelayer == address(0)) revert ZeroAddress();
         relayer = newRelayer;
     }
 
-    /// @notice Update the treasury address. Owner-only.
+    /// @notice Update the fee treasury address.
+    /// @dev    Owner-only. Fees already collected are unaffected.
+    /// @param  newTreasury  New treasury address. Must be non-zero.
     function setTreasury(address newTreasury) external onlyOwner {
         if (newTreasury == address(0)) revert ZeroAddress();
         treasury = newTreasury;

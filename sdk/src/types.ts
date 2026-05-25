@@ -176,6 +176,52 @@ export interface TokenPrice {
   timestamp:  number;
 }
 
+// ─── Strategy Templates ───────────────────────────────────────────────────────
+
+export type TemplateCategory = 'yield' | 'lending' | 'staking' | 'arbitrage' | 'bridge';
+export type TemplateDifficulty = 'simple' | 'moderate' | 'advanced';
+
+export interface StrategyTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: TemplateCategory;
+  difficulty: TemplateDifficulty;
+  estimatedApyBps: number;
+  riskLevel: RiskTolerance;
+  sourceAsset: AssetSymbol;
+  sourceChain: number;
+  destinationChain: number;
+  timeHorizonDays: number;
+  tags: string[];
+  popularityScore: number;
+}
+
+// ─── Compose Request/Response ─────────────────────────────────────────────────
+
+export interface ComposeStep {
+  stepType: StepType;
+  protocol: string;
+  protocolAddress?: string;
+  fromAsset: AssetSymbol;
+  toAsset: AssetSymbol;
+  fromChain: number;
+  toChain: number;
+  estimatedOutput?: number;
+  gasEstimateUsd?: number;
+  bridgeFeeUsd?: number;
+  slippageBps?: number;
+  apyBps?: number;
+}
+
+export interface ComposeRequest {
+  steps: ComposeStep[];
+  /** If true, run a simulation after composing */
+  simulate?: boolean;
+  /** Required if simulate is true */
+  fromAddress?: string;
+}
+
 // ─── SDK Config ───────────────────────────────────────────────────────────────
 
 export interface MeridianConfig {

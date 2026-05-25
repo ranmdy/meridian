@@ -28,6 +28,8 @@ import type {
   GasQuote,
   TokenPrice,
   Execution,
+  StrategyTemplate,
+  ComposeRequest,
 } from './types.js';
 
 export class Meridian {
@@ -155,6 +157,56 @@ export class Meridian {
     try {
       const res = await this.client.get<TokenPrice>(`/prices/${symbol}`);
       return res.priceUsd;
+    } catch {
+      return null;
+    }
+  }
+
+  // ─── Compose ────────────────────────────────────────────────────────────────
+
+  /**
+   * Compose a custom strategy from an explicit list of steps.
+   * Each step's toChain/toAsset must match the next step's fromChain/fromAsset.
+   * Live quote data is automatically merged where available.
+   */
+  async compose(req: ComposeRequest): Promise<{
+    route: OptimizeResponse['routes'][0];
+    composedAt: number;
+    quoteExpiresAt: number;
+  }> {
+    return this.client.post('/strategy/compose', req);
+  }
+
+  // ─── Templates ─────────────────────────────────────────────────────────────
+
+  /**
+   * Browse curated strategy templates.
+   */
+  async listTemplates(opts?: {
+    category?: string;
+    maxRisk?: number;
+    minApy?: number;
+    sort?: 'popular' | 'apy' | 'risk';
+    limit?: number;
+    offset?: number;
+  }): Promise<{ templates: StrategyTemplate[]; total: number }> {
+    const qs = new URLSearchParams();
+    if (opts?.category) qs.set('category', opts.category);
+    if (opts?.maxRisk !== undefined) qs.set('maxRisk', String(opts.maxRisk));
+    if (opts?.minApy !== undefined) qs.set('minApy', String(opts.minApy));
+    if (opts?.sort) qs.set('sort', opts.sort);
+    if (opts?.limit) qs.set('limit', String(opts.limit));
+    if (opts?.offset) qs.set('offset', String(opts.offset));
+    const q = qs.toString();
+    return this.client.get(`/templates${q ? `?${q}` : ''}`);
+  }
+
+  /**
+   * Get a single template by ID.
+   */
+  async getTemplate(id: string): Promise<StrategyTemplate | null> {
+    try {
+      return await this.client.get<StrategyTemplate>(`/templates/${encodeURIComponent(id)}`);
     } catch {
       return null;
     }

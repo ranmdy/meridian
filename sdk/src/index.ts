@@ -24,4 +24,9 @@ export type {
   BridgeQuote,
   GasQuote,
   TokenPrice,
+  StrategyTemplate,
+  TemplateCategory,
+  TemplateDifficulty,
+  ComposeStep,
+  ComposeRequest,
 } from './types.js';

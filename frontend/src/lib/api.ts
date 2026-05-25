@@ -171,6 +171,27 @@ export const api = {
       '/strategy/execute',
       req,
     ),
+    compose: (req: {
+      steps: Array<{
+        stepType: 'SWAP' | 'BRIDGE' | 'LEND' | 'STAKE' | 'SETTLE';
+        protocol: string;
+        protocolAddress?: string;
+        fromAsset: string;
+        toAsset: string;
+        fromChain: number;
+        toChain: number;
+        estimatedOutput?: number;
+        gasEstimateUsd?: number;
+        bridgeFeeUsd?: number;
+        slippageBps?: number;
+        apyBps?: number;
+      }>;
+      simulate?: boolean;
+      fromAddress?: string;
+    }) => post<{ route: Route; simulation?: SimulationResult; composedAt: number; quoteExpiresAt: number }>(
+      '/strategy/compose',
+      req,
+    ),
   },
   user: {
     executions: (wallet: string, limit?: number) =>
@@ -238,5 +259,77 @@ export const api = {
       ? get<{ chain: number; gasPriceGwei: number; typicalTxUsd: number; timestamp: number; isStale: boolean }>(`/quotes/gas?chain=${chain}`)
       : get<Array<{ chain: number; gasPriceGwei: number; typicalTxUsd: number; timestamp: number; isStale: boolean }>>('/quotes/gas'),
   },
+  templates: {
+    list: (params?: { category?: string; maxRisk?: number; minApy?: number; sort?: 'popular' | 'apy' | 'risk'; limit?: number; offset?: number }) => {
+      const qs = new URLSearchParams();
+      if (params?.category) qs.set('category', params.category);
+      if (params?.maxRisk !== undefined) qs.set('maxRisk', String(params.maxRisk));
+      if (params?.minApy !== undefined) qs.set('minApy', String(params.minApy));
+      if (params?.sort) qs.set('sort', params.sort);
+      if (params?.limit) qs.set('limit', String(params.limit));
+      if (params?.offset) qs.set('offset', String(params.offset));
+      const q = qs.toString();
+      return get<{
+        templates: Array<{
+          id: string; name: string; description: string;
+          category: string; difficulty: string;
+          estimatedApyBps: number; riskLevel: number;
+          sourceAsset: string; sourceChain: number; destinationChain: number;
+          timeHorizonDays: number; tags: string[]; popularityScore: number;
+        }>;
+        total: number;
+      }>(`/templates${q ? `?${q}` : ''}`);
+    },
+    get: (id: string) => get<{
+      id: string; name: string; description: string;
+      category: string; difficulty: string;
+      estimatedApyBps: number; riskLevel: number;
+      sourceAsset: string; sourceChain: number; destinationChain: number;
+      timeHorizonDays: number; tags: string[];
+    }>(`/templates/${id}`),
+    categories: () => get<{ categories: string[] }>('/templates/categories'),
+  },
   health: () => get<{ status: string; version: string }>('/health'),
+  apiKeys: {
+    list: (token?: string) =>
+      fetch(`${BASE_URL}/api-keys`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
+      }).then(async (r) => {
+        if (!r.ok) { const e = await r.json().catch(() => ({ error: 'Unknown error' })); throw new Error(e.error ?? `HTTP ${r.status}`); }
+        return r.json() as Promise<{
+          keys: Array<{
+            id: string;
+            tier: string;
+            name: string;
+            environment: string;
+            requestsPerMinute: number;
+            requestsPerMonth: number;
+            usageThisMonth: number;
+            createdAt: number;
+            lastUsedAt: number | null;
+            revokedAt: number | null;
+          }>;
+          stats: { totalKeys: number; activeKeys: number; totalRequestsThisMonth: number };
+        }>;
+      }),
+    create: (tier: string, name: string, environment?: 'test' | 'live', token?: string) =>
+      fetch(`${BASE_URL}/api-keys`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ tier, name, environment }),
+      }).then((r) => r.json() as Promise<{
+        id: string; rawKey: string; tier: string; name: string;
+        environment: string; requestsPerMinute: number; requestsPerMonth: number;
+        createdAt: number; _warning: string;
+      }>),
+    revoke: (id: string, token: string) =>
+      fetch(`${BASE_URL}/api-keys/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((r) => r.json() as Promise<{ ok: boolean; id: string; revoked: boolean }>),
+  },
 };

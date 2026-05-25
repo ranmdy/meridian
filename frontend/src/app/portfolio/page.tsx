@@ -1,5 +1,6 @@
 import { PortfolioView } from '@/src/components/portfolio/PortfolioView';
 import { ExecutionHistory } from '@/src/components/execution/ExecutionHistory';
+import { AnalyticsSection } from '@/src/components/portfolio/AnalyticsSection';
 
 export const metadata = {
   title: 'Portfolio | Meridian',
@@ -18,6 +19,11 @@ export default function PortfolioPage() {
             </p>
           </div>
           <PortfolioView />
+        </div>
+
+        <div>
+          <h2 className="text-lg font-semibold text-gray-100 mb-4">Analytics</h2>
+          <AnalyticsSection />
         </div>
 
         <div>

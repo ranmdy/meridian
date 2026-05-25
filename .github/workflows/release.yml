@@ -1,0 +1,185 @@
+name: Production Release
+
+# Triggers on semver tags (v1.0.0, v1.2.3, etc.)
+# Requires "production" GitHub Environment to be configured with required reviewers
+# for the manual approval gate to work.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+'
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false   # Never cancel a live production deploy
+
+jobs:
+  # ─── Verify this tag is on main ──────────────────────────────────────────────
+  verify-branch:
+    name: Verify tag is on main
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Confirm tag descends from main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor FETCH_HEAD ${{ github.sha }}; then
+            echo "Tag ${{ github.ref_name }} is not on main branch — blocking release"
+            exit 1
+          fi
+          echo "Tag confirmed on main — proceeding"
+
+  # ─── Manual approval gate ────────────────────────────────────────────────────
+  # Requires the "production" GitHub Environment to have at least one required reviewer.
+  # Go to Settings → Environments → production → Required reviewers to configure.
+  approve:
+    name: Await production approval
+    needs: verify-branch
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Approved
+        run: echo "Production deploy approved for ${{ github.ref_name }}"
+
+  # ─── Backend → Railway (production service) ───────────────────────────────────
+  deploy-backend:
+    name: Deploy backend → production
+    needs: approve
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy
+        run: railway up --service meridian-backend-prod --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PROD }}
+
+      - name: Health check (retry 90s)
+        run: |
+          for i in {1..18}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              "${{ secrets.BACKEND_PROD_URL }}/health" || echo "000")
+            if [[ "$STATUS" == "200" ]]; then
+              echo "Backend healthy after $((i * 5))s"
+              exit 0
+            fi
+            echo "Attempt $i: status $STATUS — waiting…"
+            sleep 5
+          done
+          echo "Backend did not become healthy in time — rolling back"
+          exit 1
+
+      - name: Rollback on failure
+        if: failure()
+        run: railway rollback --service meridian-backend-prod
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PROD }}
+        continue-on-error: true
+
+  # ─── Frontend → Vercel (production) ──────────────────────────────────────────
+  deploy-frontend:
+    name: Deploy frontend → production
+    needs: deploy-backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel
+
+      - name: Pull Vercel environment
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        working-directory: frontend
+
+      - name: Build
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL:                  ${{ secrets.BACKEND_PROD_URL }}
+          NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${{ secrets.WC_PROJECT_ID }}
+          NEXT_PUBLIC_ALCHEMY_API_KEY:          ${{ secrets.ALCHEMY_API_KEY }}
+
+      - name: Deploy
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        working-directory: frontend
+
+  # ─── Tag GitHub release ───────────────────────────────────────────────────────
+  create-release:
+    name: Create GitHub Release
+    needs: [deploy-backend, deploy-frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+          if [[ -n "$PREV_TAG" ]]; then
+            LOG=$(git log "${PREV_TAG}..HEAD" --oneline --no-merges)
+          else
+            LOG=$(git log --oneline --no-merges | head -20)
+          fi
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$LOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Publish release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Meridian ${{ github.ref_name }}
+          body: |
+            ## What's Changed
+
+            ${{ steps.changelog.outputs.changelog }}
+
+            ---
+            Deploy: backend (Railway) ✅  frontend (Vercel) ✅
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─── Notify Slack ─────────────────────────────────────────────────────────────
+  notify:
+    name: Notify on completion
+    needs: [deploy-backend, deploy-frontend]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Post to Slack
+        if: ${{ secrets.SLACK_WEBHOOK != '' }}
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "${{ (needs.deploy-backend.result == 'success' && needs.deploy-frontend.result == 'success') && ':white_check_mark:' || ':red_circle:' }} *Meridian ${{ github.ref_name }}* production deploy ${{ (needs.deploy-backend.result == 'success' && needs.deploy-frontend.result == 'success') && 'succeeded' || 'FAILED' }}\nActor: ${{ github.actor }}\n<${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}|View Release>"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

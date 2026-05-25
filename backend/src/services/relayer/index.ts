@@ -17,7 +17,6 @@ import {
   createPublicClient,
   createWalletClient,
   http,
-  webSocket,
   parseAbi,
   formatEther,
   type Address,
@@ -26,10 +25,12 @@ import {
   type WalletClient,
   type Chain,
 } from 'viem';
+import { rpcTransport } from '../rpc-transport/index.js';
 import { emitWebhookEvent } from '../webhooks/index.js';
 import { mainnet, arbitrum, base, bsc, polygon, optimism, avalanche, scroll, zkSync } from 'viem/chains';
 import { getCachedRelayerAccount, signerDescription } from '../kms-signer/index.js';
 import { monitoring } from '../monitoring/index.js';
+import { relayer as relayerMetrics } from '../metrics/index.js';
 import { nonceManager } from '../nonce-manager/index.js';
 import { config } from '../../config/index.js';
 
@@ -63,6 +64,12 @@ export interface RelayerJob {
   quoteExpiresAt: number;
   /** Set to true when the quote expired and re-optimization was triggered. */
   reoptimized: boolean;
+  /**
+   * Job priority. Higher values are processed first.
+   *   10 = Pro/API subscriber (dedicated priority)
+   *    0 = free tier (default)
+   */
+  priority: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -125,6 +132,8 @@ export class RelayerManager {
     sourceChain: number,
     destinationChain: number,
     quoteExpiresAt = 0,
+    /** Priority level: 10 = Pro/API, 0 = free tier. Higher runs first. */
+    priority = 0,
   ): RelayerJob {
     const job: RelayerJob = {
       id: `${strategyId}-${stepIndex}`,
@@ -138,6 +147,7 @@ export class RelayerManager {
       maxRetries: 5,
       quoteExpiresAt,
       reoptimized: false,
+      priority,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -175,31 +185,32 @@ export class RelayerManager {
   // ─── Client initialisation ─────────────────────────────────────────────────
 
   private async initClients() {
-    const setups: ChainSetup[] = [
-      { chain: mainnet,   rpcUrl: config.chains.ethereum.rpcUrl,  routerEnvKey: 'ROUTER_ADDRESS_ETH'    },
-      { chain: base,      rpcUrl: config.chains.base.rpcUrl,      routerEnvKey: 'ROUTER_ADDRESS_BASE'   },
-      { chain: arbitrum,  rpcUrl: config.chains.arbitrum.rpcUrl,  routerEnvKey: 'ROUTER_ADDRESS_ARB'    },
-      { chain: bsc,       rpcUrl: config.chains.bnb.rpcUrl,       routerEnvKey: 'ROUTER_ADDRESS_BSC'    },
-      { chain: polygon,   rpcUrl: config.chains.polygon.rpcUrl,   routerEnvKey: 'ROUTER_ADDRESS_POLY'   },
-      { chain: optimism,  rpcUrl: config.chains.optimism.rpcUrl,  routerEnvKey: 'ROUTER_ADDRESS_OPT'    },
-      { chain: avalanche, rpcUrl: config.chains.avalanche.rpcUrl, routerEnvKey: 'ROUTER_ADDRESS_AVAX'   },
-      { chain: scroll,    rpcUrl: config.chains.scroll.rpcUrl,    routerEnvKey: 'ROUTER_ADDRESS_SCROLL' },
-      { chain: zkSync,    rpcUrl: config.chains.zkSync.rpcUrl,    routerEnvKey: 'ROUTER_ADDRESS_ZKSYNC' },
+    const setups: Array<ChainSetup & { fallbackRpcUrl: string }> = [
+      { chain: mainnet,   rpcUrl: config.chains.ethereum.rpcUrl,  fallbackRpcUrl: config.chains.ethereum.fallbackRpcUrl,  routerEnvKey: 'ROUTER_ADDRESS_ETH'    },
+      { chain: base,      rpcUrl: config.chains.base.rpcUrl,      fallbackRpcUrl: config.chains.base.fallbackRpcUrl,      routerEnvKey: 'ROUTER_ADDRESS_BASE'   },
+      { chain: arbitrum,  rpcUrl: config.chains.arbitrum.rpcUrl,  fallbackRpcUrl: config.chains.arbitrum.fallbackRpcUrl,  routerEnvKey: 'ROUTER_ADDRESS_ARB'    },
+      { chain: bsc,       rpcUrl: config.chains.bnb.rpcUrl,       fallbackRpcUrl: config.chains.bnb.fallbackRpcUrl,       routerEnvKey: 'ROUTER_ADDRESS_BSC'    },
+      { chain: polygon,   rpcUrl: config.chains.polygon.rpcUrl,   fallbackRpcUrl: config.chains.polygon.fallbackRpcUrl,   routerEnvKey: 'ROUTER_ADDRESS_POLY'   },
+      { chain: optimism,  rpcUrl: config.chains.optimism.rpcUrl,  fallbackRpcUrl: config.chains.optimism.fallbackRpcUrl,  routerEnvKey: 'ROUTER_ADDRESS_OPT'    },
+      { chain: avalanche, rpcUrl: config.chains.avalanche.rpcUrl, fallbackRpcUrl: config.chains.avalanche.fallbackRpcUrl, routerEnvKey: 'ROUTER_ADDRESS_AVAX'   },
+      { chain: scroll,    rpcUrl: config.chains.scroll.rpcUrl,    fallbackRpcUrl: config.chains.scroll.fallbackRpcUrl,    routerEnvKey: 'ROUTER_ADDRESS_SCROLL' },
+      { chain: zkSync,    rpcUrl: config.chains.zkSync.rpcUrl,    fallbackRpcUrl: config.chains.zkSync.fallbackRpcUrl,    routerEnvKey: 'ROUTER_ADDRESS_ZKSYNC' },
     ];
 
-    await Promise.all(setups.map(async ({ chain, rpcUrl }) => {
-      if (!rpcUrl) return;
-
-      // Prefer WebSocket transport for event watching; fall back to HTTP
-      const isWs = rpcUrl.startsWith('wss://') || rpcUrl.startsWith('ws://');
-      const transport = isWs ? webSocket(rpcUrl) : http(rpcUrl);
+    await Promise.all(setups.map(async ({ chain, rpcUrl, fallbackRpcUrl }) => {
+      // Build transport: primary (Alchemy) with QuickNode fallback when both configured
+      const transport = rpcTransport({ rpcUrl, fallbackRpcUrl });
+      if (!transport) return;
 
       const pub = createPublicClient({ chain, transport }) as PublicClient;
       this.publicClients.set(chain.id, pub);
 
       const account = await getCachedRelayerAccount(chain.id);
       if (account) {
-        const httpUrl = isWs ? rpcUrl.replace(/^wss?:\/\//, 'https://') : rpcUrl;
+        // Wallet client always uses HTTP for tx submission (WS not needed for writes)
+        const httpUrl = rpcUrl.startsWith('wss://') || rpcUrl.startsWith('ws://')
+          ? rpcUrl.replace(/^wss?:\/\//, 'https://')
+          : (rpcUrl || fallbackRpcUrl);
         const wal = createWalletClient({
           account,
           chain,
@@ -356,6 +367,7 @@ export class RelayerManager {
         maxRetries: 5,
         quoteExpiresAt: 0,
         reoptimized: false,
+        priority: 0,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -390,7 +402,7 @@ export class RelayerManager {
         id: jobId, strategyId, stepIndex: failedStep, bridgeTxHash: '',
         sourceChain: 0, destinationChain: 0,
         status: 'pending', retries: 0, maxRetries: 5,
-        quoteExpiresAt: 0, reoptimized: false,
+        quoteExpiresAt: 0, reoptimized: false, priority: 0,
         createdAt: Date.now(), updatedAt: Date.now(),
       };
       this.jobs.set(jobId, job);
@@ -550,8 +562,14 @@ export class RelayerManager {
   // ─── Phase 0 polling fallback ──────────────────────────────────────────────
 
   private async processPending() {
-    for (const job of this.jobs.values()) {
-      if (job.status !== 'pending') continue;
+    // Sort pending jobs: higher priority first, then by creation time (FIFO within same tier)
+    const pending = Array.from(this.jobs.values())
+      .filter((j) => j.status === 'pending')
+      .sort((a, b) => b.priority - a.priority || a.createdAt - b.createdAt);
+
+    relayerMetrics.queueDepth(pending.length);
+
+    for (const job of pending) {
       try {
         await this.processJob(job);
       } catch (err) {
