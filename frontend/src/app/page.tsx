@@ -1,6 +1,7 @@
 import { Navbar } from '@/src/components/layout/Navbar';
 import { StrategyForm } from '@/src/components/strategy/StrategyForm';
 import { RouteList } from '@/src/components/strategy/RouteList';
+import { SavedStrategies } from '@/src/components/strategy/SavedStrategies';
 
 export default function Home() {
   return (
@@ -24,7 +25,10 @@ export default function Home() {
       {/* Main layout */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-24">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-          <StrategyForm />
+          <div className="space-y-4">
+            <StrategyForm />
+            <SavedStrategies />
+          </div>
           <RouteList />
         </div>
       </main>
