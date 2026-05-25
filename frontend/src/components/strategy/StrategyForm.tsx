@@ -2,7 +2,9 @@
 
 import { useState } from 'react';
 import { useAccount, useSignMessage } from 'wagmi';
+import type { Address } from 'viem';
 import { useStrategyStore } from '@/src/stores/strategy';
+import { usePortfolio } from '@/src/hooks/usePortfolio';
 import { api } from '@/src/lib/api';
 
 const CHAINS = [
@@ -28,9 +30,11 @@ const RISK_LABELS: Record<number, string> = {
 };
 
 export function StrategyForm() {
-  const { isConnected } = useAccount();
+  const { isConnected, address } = useAccount();
   const { signMessage } = useSignMessage();
   const [verifying, setVerifying] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [showSaveInput, setShowSaveInput] = useState(false);
 
   const {
     sourceAsset, setSourceAsset,
@@ -45,8 +49,12 @@ export function StrategyForm() {
     optimizeError, setOptimizeError,
     mode, setMode,
     setRoutes, setAutoResult,
-    toRequest,
+    toRequest, saveStrategy,
   } = useStrategyStore();
+
+  // Step 1 & 2: auto-detect assets from the connected wallet
+  const portfolio = usePortfolio(address as Address | undefined);
+  const detectedAssets = portfolio.assets.filter((a) => a.valueUsd > 1); // ignore dust
 
   const canOptimize =
     isConnected &&
@@ -128,6 +136,37 @@ export function StrategyForm() {
         </div>
       )}
 
+      {/* Step 1: detected assets banner */}
+      {isConnected && detectedAssets.length > 0 && (
+        <div className="rounded-lg bg-meridian-950/30 border border-meridian-800 px-3 py-2">
+          <p className="text-xs text-meridian-400 mb-1.5 font-medium">Detected in your wallet:</p>
+          <div className="flex flex-wrap gap-2">
+            {detectedAssets.slice(0, 6).map((a) => (
+              <button
+                key={`${a.chainId}-${a.symbol}`}
+                onClick={() => {
+                  setSourceAsset(a.symbol);
+                  setSourceChain(a.chainId);
+                  // Convert balance to USD amount using valueUsd
+                  setSourceAmountUsd(Math.floor(a.valueUsd));
+                }}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs border transition-colors ${
+                  sourceAsset === a.symbol && sourceChain === a.chainId
+                    ? 'bg-meridian-700 border-meridian-600 text-white'
+                    : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-meridian-600'
+                }`}
+              >
+                <span className="font-medium">{a.symbol}</span>
+                <span className="text-gray-500">·</span>
+                <span className="text-gray-400">{a.chainName}</span>
+                <span className="text-gray-500">·</span>
+                <span className="font-mono">${a.valueUsd.toFixed(0)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Source */}
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -137,9 +176,14 @@ export function StrategyForm() {
             onChange={(e) => setSourceAsset(e.target.value)}
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-meridian-500"
           >
-            {ASSETS.map((a) => (
-              <option key={a} value={a}>{a}</option>
-            ))}
+            {ASSETS.map((a) => {
+              const detected = detectedAssets.find((d) => d.symbol === a && d.chainId === sourceChain);
+              return (
+                <option key={a} value={a}>
+                  {a}{detected ? ` (${parseFloat(detected.balance).toFixed(4)} ≈ $${detected.valueUsd.toFixed(0)})` : ''}
+                </option>
+              );
+            })}
           </select>
         </div>
         <div>
@@ -263,6 +307,47 @@ export function StrategyForm() {
           Verify your destination wallet to enable routing
         </p>
       )}
+
+      {/* Save strategy */}
+      <div className="border-t border-gray-800 pt-4">
+        {!showSaveInput ? (
+          <button
+            onClick={() => setShowSaveInput(true)}
+            className="text-xs text-gray-500 hover:text-gray-400 transition-colors"
+          >
+            + Save this configuration as a template
+          </button>
+        ) : (
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              placeholder="Strategy name…"
+              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-100 placeholder-gray-600 focus:outline-none focus:border-meridian-500"
+            />
+            <button
+              onClick={() => {
+                if (saveName.trim()) {
+                  saveStrategy(saveName.trim());
+                  setSaveName('');
+                  setShowSaveInput(false);
+                }
+              }}
+              disabled={!saveName.trim()}
+              className="px-3 py-1.5 bg-meridian-700 hover:bg-meridian-600 disabled:opacity-40 text-white text-xs rounded-lg transition-colors"
+            >
+              Save
+            </button>
+            <button
+              onClick={() => { setSaveName(''); setShowSaveInput(false); }}
+              className="px-3 py-1.5 text-gray-500 hover:text-gray-300 text-xs transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
