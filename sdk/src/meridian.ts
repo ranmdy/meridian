@@ -23,6 +23,7 @@ import type {
   OptimizeRequest,
   OptimizeResponse,
   ApyQuote,
+  SwapQuote,
   BridgeQuote,
   GasQuote,
   TokenPrice,
@@ -88,6 +89,25 @@ export class Meridian {
    */
   async getAllApyQuotes(): Promise<ApyQuote[]> {
     return this.client.get<ApyQuote[]>('/strategy/apy');
+  }
+
+  /**
+   * Get the current swap quote for a given chain + asset pair.
+   * Returns null if no quote is available (quotes refresh every 15s).
+   */
+  async getSwapQuote(
+    chainId: number,
+    fromAsset: string,
+    toAsset: string,
+    protocol = 'uniswap_v3',
+  ): Promise<SwapQuote | null> {
+    try {
+      return await this.client.get<SwapQuote>(
+        `/quotes/swap?chain=${chainId}&from=${encodeURIComponent(fromAsset)}&to=${encodeURIComponent(toAsset)}&protocol=${protocol}`,
+      );
+    } catch {
+      return null;
+    }
   }
 
   /**

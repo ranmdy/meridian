@@ -30,6 +30,7 @@ import { emitWebhookEvent } from '../webhooks/index.js';
 import { mainnet, arbitrum, base, bsc, polygon, optimism, avalanche, scroll, zkSync } from 'viem/chains';
 import { getCachedRelayerAccount, signerDescription } from '../kms-signer/index.js';
 import { monitoring } from '../monitoring/index.js';
+import { nonceManager } from '../nonce-manager/index.js';
 import { config } from '../../config/index.js';
 
 // ─── ABI fragments ────────────────────────────────────────────────────────────
@@ -454,17 +455,28 @@ export class RelayerManager {
     this.notify(job.strategyId, job);
 
     try {
-      const { request } = await publicClient.simulateContract({
-        address: routerAddress,
-        abi: ROUTER_ABI,
-        functionName: 'continueStrategy',
-        args: [job.strategyId, BigInt(nextStepIndex)],
-        account: relayerAddress,
-      });
+      // Use nonceManager to prevent nonce collision when concurrent jobs run on the same chain
+      const hash = await nonceManager.withNonce(
+        publicClient,
+        job.destinationChain,
+        relayerAddress,
+        async (nonce) => {
+          const { request } = await publicClient.simulateContract({
+            address: routerAddress,
+            abi: ROUTER_ABI,
+            functionName: 'continueStrategy',
+            args: [job.strategyId, BigInt(nextStepIndex)],
+            account: relayerAddress,
+            nonce,
+          });
 
-      const hash = await walletClient.writeContract(
-        request as Parameters<typeof walletClient.writeContract>[0],
+          return walletClient.writeContract({
+            ...(request as Parameters<typeof walletClient.writeContract>[0]),
+            nonce,
+          });
+        },
       );
+
       console.log(`[Relayer] continueStrategy tx=${hash} strategy=${job.strategyId} step=${nextStepIndex}`);
 
       const receipt = await publicClient.waitForTransactionReceipt({ hash: hash as Hex });

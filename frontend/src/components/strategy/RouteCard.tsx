@@ -3,11 +3,15 @@
 import type { Route } from '@/src/lib/api';
 
 const CHAIN_NAMES: Record<number, string> = {
-  1: 'Ethereum',
-  8453: 'Base',
-  42161: 'Arbitrum',
-  56: 'BNB',
-  137: 'Polygon',
+  1:      'Ethereum',
+  8453:   'Base',
+  42161:  'Arbitrum',
+  56:     'BNB',
+  137:    'Polygon',
+  10:     'Optimism',
+  43114:  'Avalanche',
+  534352: 'Scroll',
+  324:    'zkSync',
 };
 
 const STEP_ICONS: Record<string, string> = {

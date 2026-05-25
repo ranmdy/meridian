@@ -88,9 +88,17 @@ export function RouteList() {
             {routes.length} Route{routes.length !== 1 ? 's' : ''} Found
           </h2>
           {isStale && (
-            <span className="text-xs text-yellow-400 bg-yellow-900/30 border border-yellow-800 px-2 py-1 rounded-full">
-              Quote expired — re-optimize for fresh prices
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-yellow-400 bg-yellow-900/30 border border-yellow-800 px-2 py-1 rounded-full">
+                Quote expired
+              </span>
+              <button
+                onClick={() => { void (document.querySelector('[data-optimize-btn]') as HTMLButtonElement | null)?.click(); }}
+                className="text-xs text-meridian-400 underline hover:no-underline"
+              >
+                Re-optimize
+              </button>
+            </div>
           )}
         </div>
 

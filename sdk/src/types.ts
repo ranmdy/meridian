@@ -131,6 +131,21 @@ export interface ApyQuote {
   fetchedAt:  number;
 }
 
+export interface SwapQuote {
+  protocol:    string;
+  chain:       number;
+  fromAsset:   AssetSymbol;
+  toAsset:     AssetSymbol;
+  /** Amount in (smallest token unit, as string to avoid bigint serialization issues) */
+  amountIn:    string;
+  /** Amount out (smallest token unit, as string) */
+  amountOut:   string;
+  feeUsd:      number;
+  slippageBps: number;
+  timestamp:   number;
+  isStale:     boolean;
+}
+
 export interface BridgeQuote {
   fromChain:   number;
   toChain:     number;

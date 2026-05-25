@@ -200,6 +200,43 @@ export async function strategyRoutes(
     return reply.send(quote);
   });
 
+  // GET /quotes/swap — live swap quote for a given chain/pair
+  fastify.get<{
+    Querystring: { chain: string; from: string; to: string; protocol?: string };
+  }>('/quotes/swap', async (request, reply) => {
+    const { chain, from: fromAsset, to: toAsset, protocol = 'uniswap_v3' } = request.query;
+    if (!chain || !fromAsset || !toAsset) {
+      return reply.status(400).send({ error: 'chain, from, and to are required' });
+    }
+
+    const quote = opts.quoteEngine.getSwapQuote(protocol, Number(chain), fromAsset, toAsset);
+    if (!quote) {
+      // Try reverse direction for common pairs (e.g. USDC→ETH when we only have ETH→USDC)
+      const reverse = opts.quoteEngine.getSwapQuote(protocol, Number(chain), toAsset, fromAsset);
+      if (!reverse) {
+        return reply.status(404).send({
+          error: 'No swap quote available for this pair',
+          hint: 'Supported pairs refresh every 15s. Try ETH→USDC on chains 1, 42161, 8453.',
+        });
+      }
+      // Return flipped with inverted amounts
+      return reply.send({
+        ...reverse,
+        fromAsset: toAsset,
+        toAsset: fromAsset,
+        amountIn: reverse.amountOut.toString(),
+        amountOut: reverse.amountIn.toString(),
+        _reversed: true,
+      });
+    }
+
+    return reply.send({
+      ...quote,
+      amountIn: quote.amountIn.toString(),
+      amountOut: quote.amountOut.toString(),
+    });
+  });
+
   // GET /quotes/bridge — bridge quote
   fastify.get<{
     Querystring: { protocol: string; fromChain: string; toChain: string; asset: string };
