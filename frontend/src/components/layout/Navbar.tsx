@@ -1,6 +1,8 @@
 'use client';
 
 import { ConnectButton } from '@/src/components/wallet/ConnectButton';
+import { SignInButton } from '@/src/components/auth/SignInButton';
+import { SolanaConnectButton } from '@/src/components/solana/SolanaConnectButton';
 
 export function Navbar() {
   return (
@@ -17,6 +19,12 @@ export function Navbar() {
 
         <div className="flex items-center gap-4">
           <a
+            href="/composer"
+            className="hidden sm:block text-sm text-gray-400 hover:text-gray-200 transition-colors"
+          >
+            Composer
+          </a>
+          <a
             href="/marketplace"
             className="hidden sm:block text-sm text-gray-400 hover:text-gray-200 transition-colors"
           >
@@ -28,6 +36,14 @@ export function Navbar() {
           >
             Portfolio
           </a>
+          <a
+            href="/billing"
+            className="hidden sm:block text-sm text-gray-400 hover:text-gray-200 transition-colors"
+          >
+            Billing
+          </a>
+          <SignInButton />
+          <SolanaConnectButton />
           <ConnectButton />
         </div>
       </div>

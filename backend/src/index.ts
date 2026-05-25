@@ -7,6 +7,16 @@ import { StrategyEngine } from './services/strategy-engine/index.js';
 import { QuoteEngine } from './services/quote-engine/index.js';
 import { RelayerManager } from './services/relayer/index.js';
 import { strategyRoutes } from './api/routes/strategy.js';
+import { exportRoutes } from './api/routes/export.js';
+import { authRoutes } from './api/routes/auth.js';
+import { marketplaceRoutes } from './api/routes/marketplace.js';
+import { webhookRoutes } from './api/routes/webhooks.js';
+import { startExploitFeed, stopExploitFeed } from './services/exploit-feed/index.js';
+import { exploitRoutes } from './api/routes/exploits.js';
+import { billingRoutes } from './api/routes/billing.js';
+import { bridgeListener } from './services/bridge-listener/index.js';
+import { priceFeed } from './services/price-feed/index.js';
+import { priceRoutes } from './api/routes/prices.js';
 
 const fastify = Fastify({
   logger: {
@@ -65,6 +75,13 @@ fastify.get('/ws/strategy/:strategyId', { websocket: true }, (socket, req) => {
 // ─── REST Routes ──────────────────────────────────────────────────────────────
 
 await fastify.register(strategyRoutes, { strategyEngine, quoteEngine });
+await fastify.register(exportRoutes);
+await fastify.register(authRoutes);
+await fastify.register(marketplaceRoutes);
+await fastify.register(webhookRoutes);
+await fastify.register(exploitRoutes);
+await fastify.register(billingRoutes);
+await fastify.register(priceRoutes);
 
 // Health check
 fastify.get('/health', async () => ({
@@ -81,7 +98,10 @@ const start = async () => {
     quoteEngine.onApyRefresh((quotes) => strategyEngine.refreshFromQuotes(quotes));
 
     quoteEngine.start();
-    relayerManager.start();
+    await relayerManager.start();
+    startExploitFeed();
+    priceFeed.start();
+    void bridgeListener.start();
 
     await fastify.listen({ port: config.port, host: config.host });
     fastify.log.info(`Meridian backend listening on ${config.host}:${config.port}`);
@@ -96,6 +116,9 @@ const shutdown = async () => {
   fastify.log.info('Shutting down...');
   quoteEngine.stop();
   relayerManager.stop();
+  stopExploitFeed();
+  priceFeed.stop();
+  bridgeListener.stop();
   await fastify.close();
   process.exit(0);
 };

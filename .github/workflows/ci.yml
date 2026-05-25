@@ -170,10 +170,39 @@ jobs:
           NEXT_PUBLIC_API_URL: http://localhost:3001
           NEXT_PUBLIC_WC_PROJECT_ID: dummy-ci-project-id
 
+  # ─── SDK ──────────────────────────────────────────────────────────────────────
+  sdk:
+    name: SDK (typecheck + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: TypeScript type check
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
   # ─── Required status check gate ───────────────────────────────────────────────
   all-pass:
     name: All checks passed
-    needs: [contracts, backend, frontend]
+    needs: [contracts, backend, frontend, sdk]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -181,7 +210,8 @@ jobs:
         run: |
           if [[ "${{ needs.contracts.result }}" != "success" || \
                 "${{ needs.backend.result }}" != "success" || \
-                "${{ needs.frontend.result }}" != "success" ]]; then
+                "${{ needs.frontend.result }}" != "success" || \
+                "${{ needs.sdk.result }}" != "success" ]]; then
             echo "One or more jobs failed"
             exit 1
           fi

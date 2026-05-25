@@ -4,6 +4,7 @@ import { verifyMessage } from 'viem';
 import type { StrategyEngine } from '../../services/strategy-engine/index.js';
 import type { QuoteEngine } from '../../services/quote-engine/index.js';
 import { SimulationService } from '../../services/simulation/index.js';
+import { tieredRateLimit } from '../../services/rateLimit/index.js';
 
 const simulationService = new SimulationService();
 
@@ -29,7 +30,7 @@ export async function strategyRoutes(
   opts: { strategyEngine: StrategyEngine; quoteEngine: QuoteEngine },
 ) {
   // POST /strategy/optimize — find best routes for a given request
-  fastify.post('/strategy/optimize', async (request, reply) => {
+  fastify.post('/strategy/optimize', { preHandler: tieredRateLimit }, async (request, reply) => {
     const parsed = OptimizeSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: 'Invalid request', details: parsed.error.flatten() });
@@ -79,7 +80,7 @@ export async function strategyRoutes(
       fromAddress: string;
       sourceChain: number;
     };
-  }>('/strategy/simulate', async (request, reply) => {
+  }>('/strategy/simulate', { preHandler: tieredRateLimit }, async (request, reply) => {
     const { routeIndex, fromAddress, sourceChain } = request.body ?? {};
     if (typeof routeIndex !== 'number' || !fromAddress || !sourceChain) {
       return reply.status(400).send({ error: 'routeIndex, fromAddress, and sourceChain are required' });
@@ -116,9 +117,75 @@ export async function strategyRoutes(
     return reply.send(opts.quoteEngine.getAllGasQuotes());
   });
 
+  // POST /strategy/auto-optimize — single best route selected automatically
+  fastify.post('/strategy/auto-optimize', { preHandler: tieredRateLimit }, async (request, reply) => {
+    const parsed = OptimizeSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+
+    const result = opts.strategyEngine.optimize(parsed.data);
+    if (result.routes.length === 0) {
+      return reply.status(422).send({
+        error: 'No routes found',
+        message: 'No viable routes exist for this source/destination pair.',
+      });
+    }
+
+    const { riskTolerance } = parsed.data;
+
+    // Score routes with risk-tolerance weighting:
+    //   Low risk (1–2): penalize high bridgeCount and high riskScore, prioritise safety
+    //   Medium risk (3): balanced — use totalScore as-is
+    //   High risk (4–5): prioritise APY, accept higher cost/risk
+    const scored = result.routes.map((route, i) => {
+      let w = route.totalScore;
+      if (riskTolerance <= 2) {
+        w -= route.bridgeCount * 500;
+        w -= route.riskScore * 20;
+      } else if (riskTolerance >= 4) {
+        w += (route.estimatedApyBps / 100) * 200;
+      }
+      return { route, index: i, weight: w };
+    });
+
+    scored.sort((a, b) => b.weight - a.weight);
+    const best = scored[0];
+
+    // Generate a plain-language explanation
+    const apyPct = (best.route.estimatedApyBps / 100).toFixed(2);
+    const totalFees = (best.route.totalGasUsd + best.route.totalBridgeFeeUsd + best.route.totalProtocolFeeUsd).toFixed(2);
+    const hops = best.route.hopCount;
+    const bridges = best.route.bridgeCount;
+    const minutes = Math.round(best.route.estimatedTimeSeconds / 60);
+
+    let explanation = `Selected for `;
+    if (riskTolerance <= 2) {
+      explanation += `safety: lowest risk score (${best.route.riskScore}/100) with ${bridges} bridge${bridges !== 1 ? 's' : ''}.`;
+    } else if (riskTolerance >= 4) {
+      explanation += `yield: highest projected APY at ${apyPct}% across ${hops} hop${hops !== 1 ? 's' : ''}.`;
+    } else {
+      explanation += `balance: ${apyPct}% APY with $${totalFees} total fees in ~${minutes} minutes.`;
+    }
+
+    return reply.send({
+      route: best.route,
+      routeIndex: best.index,
+      explanation,
+      alternatives: result.routes.filter((_, i) => i !== best.index),
+      simulatedAt: result.simulatedAt,
+      quoteExpiresAt: result.quoteExpiresAt,
+    });
+  });
+
   // GET /strategy/graph — debug endpoint (dev only)
   fastify.get('/strategy/graph/stats', async (_request, reply) => {
     return reply.send(opts.strategyEngine.graphStats());
+  });
+
+  // GET /strategy/apy — all cached APY quotes (for Composer live preview)
+  fastify.get('/strategy/apy', async (_request, reply) => {
+    return reply.send({ quotes: opts.quoteEngine.getAllApyQuotes() });
   });
 
   // GET /quotes/apy — APY for a specific protocol/chain/asset

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ExecutionPoller } from '@/src/components/execution/ExecutionPoller';
+import { ExportButtons } from '@/src/components/execution/ExportButtons';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -23,6 +24,8 @@ export default async function ExecutionPage({ params }: PageProps) {
           <h2 className="mb-6 text-base font-semibold text-white/80">Execution Progress</h2>
           <ExecutionPoller executionId={id} />
         </div>
+
+        <ExportButtons executionId={id} />
 
         <p className="mt-6 text-center text-xs text-white/30">
           Updates automatically. You can close this tab and return later — your strategy will

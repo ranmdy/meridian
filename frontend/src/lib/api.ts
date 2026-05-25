@@ -45,6 +45,33 @@ export interface StrategyOptimizeResponse {
   quoteExpiresAt: number;
 }
 
+export interface AutoOptimizeResponse {
+  route: Route;
+  routeIndex: number;
+  explanation: string;
+  alternatives: Route[];
+  simulatedAt: number;
+  quoteExpiresAt: number;
+}
+
+export interface StepSimResult {
+  stepIndex: number;
+  passed: boolean;
+  gasUsd: number;
+  revertReason?: string;
+}
+
+export interface SimulationResult {
+  available: boolean;
+  allStepsPass: boolean;
+  steps: StepSimResult[];
+  totalGasUsd: number;
+  estimatedApyBps: number;
+  riskScore: number;
+  exploitAlerts: string[];
+  simulatedAt: number;
+}
+
 export interface StepStatus {
   index: number;
   status: 'pending' | 'in_progress' | 'done' | 'failed';
@@ -77,6 +104,30 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return res.json();
 }
 
+export interface MarketplaceStrategy {
+  id: string;
+  name: string;
+  description: string;
+  creatorWallet: string;
+  route: Route;
+  sourceAsset: string;
+  sourceChain: number;
+  destinationChain: number;
+  riskTolerance: 1 | 2 | 3 | 4 | 5;
+  timeHorizonDays: number;
+  executionCount: number;
+  votes: number;
+  publishedApyBps: number;
+  publishedAt: number;
+  updatedAt: number;
+  deprecated: boolean;
+}
+
+export interface MarketplaceBrowseResponse {
+  strategies: MarketplaceStrategy[];
+  total: number;
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`);
   if (!res.ok) {
@@ -87,11 +138,55 @@ async function get<T>(path: string): Promise<T> {
 }
 
 export const api = {
+  auth: {
+    nonce: (wallet?: string) =>
+      get<{ nonce: string; message: string; expiresAt: number }>(
+        wallet ? `/auth/nonce?wallet=${encodeURIComponent(wallet)}` : '/auth/nonce',
+      ),
+    verify: (nonce: string, signature: string, wallet: string) =>
+      post<{ token: string; wallet: string; expiresAt: number }>('/auth/verify', { nonce, signature, wallet }),
+    me: () => get<{ wallet: string; expiresAt: number }>('/auth/me'),
+    logout: () => post<{ ok: boolean }>('/auth/logout', {}),
+  },
   strategy: {
     optimize: (req: StrategyOptimizeRequest) =>
       post<StrategyOptimizeResponse>('/strategy/optimize', req),
+    autoOptimize: (req: StrategyOptimizeRequest) =>
+      post<AutoOptimizeResponse>('/strategy/auto-optimize', req),
+    simulate: (routeIndex: number, fromAddress: string, sourceChain: number) =>
+      post<SimulationResult>('/strategy/simulate', { routeIndex, fromAddress, sourceChain }),
     status: (executionId: string) =>
       get<ExecutionStatus>(`/strategy/${executionId}/status`),
+  },
+  marketplace: {
+    browse: (params?: { sort?: string; chain?: number; maxRisk?: number; minApy?: number; limit?: number; offset?: number }) => {
+      const qs = new URLSearchParams();
+      if (params?.sort) qs.set('sort', params.sort);
+      if (params?.chain) qs.set('chain', String(params.chain));
+      if (params?.maxRisk) qs.set('maxRisk', String(params.maxRisk));
+      if (params?.minApy) qs.set('minApy', String(params.minApy));
+      if (params?.limit) qs.set('limit', String(params.limit));
+      if (params?.offset) qs.set('offset', String(params.offset));
+      const q = qs.toString();
+      return get<MarketplaceBrowseResponse>(`/strategies${q ? `?${q}` : ''}`);
+    },
+    get: (id: string) => get<MarketplaceStrategy>(`/strategies/${id}`),
+    vote: (id: string) => post<{ ok: boolean }>(`/strategies/${id}/vote`, {}),
+    publish: (strategy: {
+      name: string;
+      description: string;
+      route: Route;
+      sourceAsset: string;
+      sourceChain: number;
+      destinationChain: number;
+      riskTolerance: 1 | 2 | 3 | 4 | 5;
+      timeHorizonDays: number;
+    }, token: string) =>
+      fetch(`${BASE_URL}/strategies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(strategy),
+      }).then((r) => r.json() as Promise<MarketplaceStrategy>),
   },
   health: () => get<{ status: string; version: string }>('/health'),
 };
