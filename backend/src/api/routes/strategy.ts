@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { verifyMessage } from 'viem';
 import type { StrategyEngine } from '../../services/strategy-engine/index.js';
 import type { QuoteEngine } from '../../services/quote-engine/index.js';
 
@@ -16,6 +17,8 @@ const OptimizeSchema = z.object({
     z.literal(5),
   ]),
   timeHorizonDays: z.number().int().min(1).max(3650),
+  destinationWallet: z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional(),
+  destinationSignature: z.string().regex(/^0x[0-9a-fA-F]+$/).optional(),
 });
 
 export async function strategyRoutes(
@@ -27,6 +30,31 @@ export async function strategyRoutes(
     const parsed = OptimizeSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+
+    // Verify destination wallet ownership if provided
+    const { destinationWallet, destinationSignature } = parsed.data;
+    if (destinationWallet && destinationSignature) {
+      const message =
+        `Meridian destination verification\nI confirm this wallet is mine: ${destinationWallet}`;
+      try {
+        const valid = await verifyMessage({
+          address: destinationWallet as `0x${string}`,
+          message,
+          signature: destinationSignature as `0x${string}`,
+        });
+        if (!valid) {
+          return reply.status(403).send({
+            error: 'Invalid destination signature',
+            message: 'The provided signature does not match the destination wallet.',
+          });
+        }
+      } catch {
+        return reply.status(403).send({
+          error: 'Signature verification failed',
+          message: 'Could not verify destination wallet ownership.',
+        });
+      }
     }
 
     const result = opts.strategyEngine.optimize(parsed.data);
