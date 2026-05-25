@@ -20,6 +20,7 @@ export type {
   ExecutionStep,
   Execution,
   ApyQuote,
+  SwapQuote,
   BridgeQuote,
   GasQuote,
   TokenPrice,

@@ -367,12 +367,12 @@
 
 - [x] `sdk/src/types.ts` — shared types: `OptimizeRequest`, `OptimizeResponse`, `Execution`, `ApyQuote`, `BridgeQuote`, `GasQuote`, `TokenPrice`, `MeridianConfig`
 - [x] `sdk/src/client.ts` — `MeridianClient` with timeout, auth header injection, structured `MeridianApiError`
-- [x] `sdk/src/meridian.ts` — `Meridian` class: `optimize()`, `autoOptimize()`, `getExecution()`, `getAllApyQuotes()`, `getPrice()`, `getAllPrices()`, `health()`
-- [x] `sdk/src/index.ts` — public API surface (re-exports types + classes)
-- [x] `sdk/package.json` — ESM + CJS dual-build via tsup, peer dep on viem
+- [x] `sdk/src/meridian.ts` — `Meridian` class: `optimize()`, `autoOptimize()`, `getExecution()`, `getAllApyQuotes()`, `getSwapQuote()`, `getPrice()`, `getAllPrices()`, `health()`
+- [x] `sdk/src/index.ts` — public API surface (re-exports types + classes incl. `SwapQuote`)
+- [x] `sdk/package.json` — ESM + CJS dual-build via tsup, peer dep on viem; `tsconfig.json` `lib` fixed to include `DOM` for `fetch`/`AbortController`
 - [x] `sdk/test/meridian.test.ts` — 11 unit tests with fetch mocking (no real HTTP)
 - [ ] `npm publish @meridian/sdk` — pending public npm registry account
-- [ ] Add SDK to CI pipeline (`pnpm --filter @meridian/sdk test`)
+- [x] Add SDK to CI pipeline — SDK job in `ci.yml`; `all-pass` gate requires `[contracts, backend, frontend, sdk]`
 
 ### 3.1 DAO/Business API
 
@@ -564,10 +564,10 @@
   - [ ] DeFiLlama `GET /yields/pools` — backup source for all APYs
 - [x] **Staleness handling**
   - [x] Return `{quote, timestamp, isStale: bool}` in all quote responses
-  - [ ] Frontend: warn user if executing with stale quote (>60s)
-- [~] **API endpoints**
+  - [x] Frontend: "Quote expired" badge + "Re-optimize" trigger in RouteList when `quoteExpiresAt` has passed
+- [x] **API endpoints**
   - [x] `GET /quotes/bridge?from=1&to=42161&asset=USDC&amount=4200`
-  - [ ] `GET /quotes/swap?chain=1&from=ETH&to=USDC&amount=2.5`
+  - [x] `GET /quotes/swap?chain=1&from=ETH&to=USDC` — returns cached 1inch quote; reverse-pair fallback; 404 with hint if unavailable
   - [x] `GET /quotes/apy?protocol=aave&asset=USDC&chain=1`
 
 ### Relayer Manager
@@ -589,7 +589,7 @@
   - [x] Separate funded wallet per chain (Anvil keys configured)
   - [x] Balance monitoring: alert if balance < 0.05 ETH equivalent — via `monitoring.alert()` → Slack
   - [x] Key storage: AWS KMS — `kms-signer` service resolves per-chain accounts via KMS ECC_SECG_P256K1 with plaintext fallback for dev
-  - [ ] Nonce management: prevent nonce collision on concurrent transactions
+  - [x] Nonce management: `nonce-manager` service — mutex-based per-(chain, address) nonce tracking, atomic increment, nonce-error reset; 8 unit tests; wired into relayer `callContinueStrategy`
 - [ ] **Failure handling**
   - [ ] All failures emit `StrategyFailed` event on-chain
   - [ ] All failures trigger `EmergencyExit` if funds are stuck
@@ -672,11 +672,12 @@
   - [x] Per-step TX hash → block explorer link
   - [x] ETA for bridge steps
   - [x] Emergency Exit button (if strategy is stuck)
-- [ ] **Step 8 — Settlement & Report**:
-  - [ ] Confirmation: "X USDC received at 0xABC...DEF"
-  - [ ] Download buttons: [CSV] [PDF] [JSON]
-  - [ ] Share: Twitter card with strategy performance
-  - [ ] CTA: "Run another strategy"
+- [x] **Step 8 — Settlement & Report**:
+  - [x] `SettlementScreen` component — shown when `status === 'completed'` in `ExecutionPoller`
+  - [x] Per-step tx hash → block explorer link (all 9 chains)
+  - [x] Download buttons: CSV / PDF (text) / JSON via `/executions/:id/report`
+  - [x] Share on X (Twitter) — pre-filled tweet with asset + truncated destination
+  - [x] "Run another strategy" CTA — clears strategy store, navigates to `/`
 
 ### Strategy Composer UI
 

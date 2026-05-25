@@ -4,15 +4,17 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '@/src/lib/api';
 import type { ExecutionStatus } from '@/src/lib/api';
 import { StepTracker } from './StepTracker';
+import { SettlementScreen } from './SettlementScreen';
 
 interface ExecutionPollerProps {
   executionId: string;
+  showSettlement?: boolean;
 }
 
 const TERMINAL_STATES = new Set(['completed', 'failed', 'emergency_exited']);
 const POLL_INTERVAL_MS = 3000;
 
-export function ExecutionPoller({ executionId }: ExecutionPollerProps) {
+export function ExecutionPoller({ executionId, showSettlement = true }: ExecutionPollerProps) {
   const [status, setStatus] = useState<ExecutionStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -100,6 +102,11 @@ export function ExecutionPoller({ executionId }: ExecutionPollerProps) {
         Loading execution status…
       </div>
     );
+  }
+
+  // Show the rich settlement screen once the strategy completes
+  if (showSettlement && status.status === 'completed') {
+    return <SettlementScreen status={status} executionId={executionId} />;
   }
 
   return <StepTracker status={status} />;

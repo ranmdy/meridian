@@ -188,5 +188,28 @@ export const api = {
         body: JSON.stringify(strategy),
       }).then((r) => r.json() as Promise<MarketplaceStrategy>),
   },
+  quotes: {
+    swap: (chain: number, from: string, to: string, protocol = 'uniswap_v3') =>
+      get<{
+        protocol: string; chain: number; fromAsset: string; toAsset: string;
+        amountIn: string; amountOut: string; feeUsd: number; slippageBps: number;
+        timestamp: number; isStale: boolean;
+      }>(`/quotes/swap?chain=${chain}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&protocol=${protocol}`),
+    bridge: (protocol: string, fromChain: number, toChain: number, asset: string) =>
+      get<{
+        protocol: string; fromChain: number; toChain: number; fromAsset: string;
+        amountIn: string; amountOut: string; feeUsd: number; estimatedSeconds: number;
+        timestamp: number; isStale: boolean;
+      }>(`/quotes/bridge?protocol=${protocol}&fromChain=${fromChain}&toChain=${toChain}&asset=${asset}`),
+    apy: (protocol: string, chain: number, asset: string) =>
+      get<{
+        protocol: string; chain: number; asset: string;
+        supplyApyBps: number; borrowApyBps: number; tvlUsd: number;
+        timestamp: number; isStale: boolean;
+      }>(`/quotes/apy?protocol=${protocol}&chain=${chain}&asset=${asset}`),
+    gas: (chain?: number) => chain
+      ? get<{ chain: number; gasPriceGwei: number; typicalTxUsd: number; timestamp: number; isStale: boolean }>(`/quotes/gas?chain=${chain}`)
+      : get<Array<{ chain: number; gasPriceGwei: number; typicalTxUsd: number; timestamp: number; isStale: boolean }>>('/quotes/gas'),
+  },
   health: () => get<{ status: string; version: string }>('/health'),
 };

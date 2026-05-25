@@ -6,11 +6,15 @@ import { useStrategyStore } from '@/src/stores/strategy';
 import { api } from '@/src/lib/api';
 
 const CHAINS = [
-  { id: 1, name: 'Ethereum' },
-  { id: 8453, name: 'Base' },
-  { id: 42161, name: 'Arbitrum' },
-  { id: 56, name: 'BNB Chain' },
-  { id: 137, name: 'Polygon' },
+  { id: 1,      name: 'Ethereum' },
+  { id: 8453,   name: 'Base' },
+  { id: 42161,  name: 'Arbitrum' },
+  { id: 56,     name: 'BNB Chain' },
+  { id: 137,    name: 'Polygon' },
+  { id: 10,     name: 'Optimism' },
+  { id: 43114,  name: 'Avalanche' },
+  { id: 534352, name: 'Scroll' },
+  { id: 324,    name: 'zkSync Era' },
 ];
 
 const ASSETS = ['ETH', 'USDC', 'USDT', 'WBTC'];
@@ -243,6 +247,7 @@ export function StrategyForm() {
       <button
         onClick={handleOptimize}
         disabled={!canOptimize || isOptimizing}
+        data-optimize-btn
         className="w-full bg-meridian-600 hover:bg-meridian-500 disabled:opacity-40 disabled:cursor-not-allowed text-white py-3 rounded-lg font-medium transition-colors"
       >
         {isOptimizing
