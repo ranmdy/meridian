@@ -43,10 +43,10 @@ export function RouteCard({ route, rank, selected, onSelect }: Props) {
   return (
     <button
       onClick={onSelect}
-      className={`w-full text-left glass p-5 transition-all ${
+      className={`w-full text-left rounded-xl border p-5 transition-all cursor-pointer ${
         selected
-          ? 'border-meridian-500 shadow-lg shadow-meridian-500/10'
-          : 'hover:border-gray-600'
+          ? 'bg-gray-900/60 border-meridian-500 shadow-lg shadow-meridian-500/10'
+          : 'bg-gray-900/40 border-gray-800 hover:border-gray-600'
       }`}
     >
       {/* Header */}
@@ -59,7 +59,7 @@ export function RouteCard({ route, rank, selected, onSelect }: Props) {
           )}
           <span className="text-sm text-gray-400">Route #{rank}</span>
         </div>
-        <span className="text-xl font-bold text-meridian-400">{apyPct}% APY</span>
+        <span className="text-xl font-bold text-meridian-400 tabular-nums">{apyPct}% APY</span>
       </div>
 
       {/* Steps */}
@@ -85,18 +85,18 @@ export function RouteCard({ route, rank, selected, onSelect }: Props) {
       </div>
 
       {/* Metrics */}
-      <div className="grid grid-cols-3 gap-3 text-center">
+      <div className="grid grid-cols-3 gap-3 text-center pt-1 border-t border-gray-800/60">
         <div>
           <div className="text-xs text-gray-500 mb-1">Fees</div>
-          <div className="text-sm font-medium text-gray-200">${totalFees.toFixed(2)}</div>
+          <div className="text-sm font-semibold text-gray-200 tabular-nums">${totalFees.toFixed(2)}</div>
         </div>
         <div>
           <div className="text-xs text-gray-500 mb-1">Time</div>
-          <div className="text-sm font-medium text-gray-200">~{minutes}m</div>
+          <div className="text-sm font-semibold text-gray-200">~{minutes}m</div>
         </div>
         <div>
           <div className="text-xs text-gray-500 mb-1">Risk</div>
-          <div className={`text-sm font-medium ${riskColor(route.riskScore)}`}>
+          <div className={`text-sm font-semibold tabular-nums ${riskColor(route.riskScore)}`}>
             {route.riskScore.toFixed(0)}/100
           </div>
         </div>

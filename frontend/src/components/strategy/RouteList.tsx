@@ -82,9 +82,9 @@ export function RouteList() {
         />
       )}
 
-      <div className="space-y-4">
+      <div className="glass p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-100">
+          <h2 className="text-base font-semibold text-gray-100 tracking-tight">
             {routes.length} Route{routes.length !== 1 ? 's' : ''} Found
           </h2>
           {isStale && (
@@ -184,7 +184,7 @@ export function RouteList() {
         <button
           onClick={handleExecuteClick}
           disabled={isBusy || isStale || isSuccess}
-          className="w-full bg-meridian-600 hover:bg-meridian-500 disabled:opacity-40 disabled:cursor-not-allowed text-white py-3 rounded-lg font-medium transition-colors mt-2 flex items-center justify-center gap-2"
+          className="w-full bg-meridian-600 hover:bg-meridian-500 disabled:opacity-40 disabled:cursor-not-allowed text-white py-3 rounded-lg font-semibold text-sm transition-colors mt-2 flex items-center justify-center gap-2"
         >
           {isBusy && (
             <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -192,9 +192,8 @@ export function RouteList() {
           {STAGE_LABELS[stage] ?? 'Execute Selected Route'}
         </button>
 
-        <p className="text-xs text-gray-500 text-center">
-          ⚠ You are interacting with 3rd party DeFi protocols. Meridian is non-custodial.
-          Funds are not insured.
+        <p className="text-xs text-gray-600 text-center">
+          ⚠ You are interacting with 3rd party DeFi protocols. Meridian is non-custodial. Funds are not insured.
         </p>
       </div>
     </>
