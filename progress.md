@@ -122,8 +122,8 @@
 - [x] Implement `verifyDestination()` in smart contract (ECDSA + EIP-191)
 - [x] Implement verification message standard:
   `"Meridian destination verification\nI confirm this wallet is mine: {address}"`
-- [ ] Implement frontend flow: prompt user to sign with destination wallet
-- [ ] Implement backend validation: verify signature before submitting strategy
+- [x] Implement frontend flow: prompt user to sign with destination wallet
+- [x] Implement backend validation: verify signature before submitting strategy (viem verifyMessage)
 - [x] Enforce on-chain: reject `executeStrategy` calls without valid signature
 - [x] Test: attempt to use unowned destination address → must revert on-chain
 - [x] Test: valid signature → strategy proceeds normally
@@ -132,18 +132,20 @@
 ### 1.2 Live Quote Engine
 
 - [x] Set up Redis for quote caching (TTL: 60 seconds)
-- [~] Poll bridge quotes every 15 seconds:
-  - [ ] Stargate SDK — bridge quotes (USDC, USDT, ETH)
-  - [ ] Across Protocol SDK — bridge quotes (ETH, USDC, WBTC)
-  - [ ] Wormhole SDK — bridge quotes (20+ assets)
-- [~] Poll swap quotes every 15 seconds:
-  - [ ] 1inch Fusion SDK
+- [x] Poll bridge quotes every 15 seconds:
+  - [x] Li.Fi aggregator API — Stargate, Across, Hop, Wormhole via single endpoint (no key)
+  - [ ] Stargate SDK — direct SDK integration (future: more granular quotes)
+  - [ ] Across Protocol SDK — direct SDK integration
+  - [ ] Wormhole SDK — direct SDK integration
+- [x] Poll swap quotes every 15 seconds:
+  - [x] 1inch v6 price API — ETH/USDC across Ethereum, Arbitrum, Base (no key)
   - [ ] Paraswap API
   - [ ] 0x Protocol API
-- [~] Poll lending APY every 15 seconds:
-  - [ ] Aave subgraph (The Graph) — live APY per asset per chain
-  - [ ] Compound v3 API — live APY
-  - [ ] Morpho API — live APY
+- [x] Poll lending APY every 15 seconds:
+  - [x] DeFiLlama yields API — Aave v3, Compound v3, Morpho across all chains (no key)
+  - [ ] Aave subgraph (The Graph) — direct subgraph (for granular per-asset borrow rates)
+  - [ ] Compound v3 API — direct integration
+  - [ ] Morpho API — direct integration
 - [x] Quote invalidation: mark quote stale after 60 seconds, refresh on next poll
 - [x] API endpoint: `GET /quotes/bridge` and `GET /quotes/apy` (live endpoints)
 - [x] Error handling: fallback to last known quote if API is down (with staleness flag)

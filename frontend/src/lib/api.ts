@@ -7,6 +7,8 @@ export interface StrategyOptimizeRequest {
   destinationChain: number;
   riskTolerance: 1 | 2 | 3 | 4 | 5;
   timeHorizonDays: number;
+  destinationWallet?: string;
+  destinationSignature?: string;
 }
 
 export interface RouteStep {

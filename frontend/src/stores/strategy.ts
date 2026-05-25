@@ -86,6 +86,8 @@ export const useStrategyStore = create<StrategyState>()(
           destinationChain: s.destinationChain,
           riskTolerance: s.riskTolerance,
           timeHorizonDays: s.timeHorizonDays,
+          destinationWallet: s.destinationWallet || undefined,
+          destinationSignature: s.destinationSignature || undefined,
         };
       },
     }),
