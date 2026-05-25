@@ -6,17 +6,28 @@ import { useStrategyStore } from '@/src/stores/strategy';
 import { useExecuteStrategy } from '@/src/hooks/useExecuteStrategy';
 import { RouteCard } from './RouteCard';
 
+const STAGE_LABELS: Record<string, string> = {
+  idle:               'Execute Selected Route',
+  checking_allowance: 'Checking allowance…',
+  approving:          'Confirm approval in wallet…',
+  awaiting_approval:  'Waiting for approval tx…',
+  executing:          'Confirm execution in wallet…',
+  awaiting_execution: 'Waiting for confirmation…',
+  success:            'Strategy submitted!',
+  error:              'Execute Selected Route',
+};
+
 export function RouteList() {
   const router = useRouter();
   const { routes, selectedRouteIndex, selectRoute, quoteExpiresAt } = useStrategyStore();
-  const { execute, isPending, isConfirming, isSuccess, strategyId, txHash, error, reset } =
-    useExecuteStrategy();
+  const {
+    execute, stage, isApproving, isExecuting,
+    isPending, isConfirming, isSuccess,
+    strategyId, executionTxHash, error, reset,
+  } = useExecuteStrategy();
 
-  // Navigate to the live tracker as soon as we have a strategyId from the event log
   useEffect(() => {
-    if (strategyId) {
-      router.push(`/execution/${strategyId}`);
-    }
+    if (strategyId) router.push(`/execution/${strategyId}`);
   }, [strategyId, router]);
 
   if (routes.length === 0) return null;
@@ -24,13 +35,6 @@ export function RouteList() {
   const now = Math.floor(Date.now() / 1000);
   const isStale = quoteExpiresAt !== null && now > quoteExpiresAt;
   const isBusy = isPending || isConfirming;
-
-  const buttonLabel = () => {
-    if (isPending) return 'Confirm in wallet…';
-    if (isConfirming) return 'Waiting for confirmation…';
-    if (isSuccess && !strategyId) return 'Parsing result…';
-    return 'Execute Selected Route';
-  };
 
   return (
     <div className="space-y-4">
@@ -55,31 +59,43 @@ export function RouteList() {
         />
       ))}
 
-      {txHash && !strategyId && (
-        <div className="text-xs text-gray-400 font-mono break-all bg-gray-900 border border-gray-800 rounded-lg p-3">
-          TX submitted:{' '}
-          <span className="text-meridian-400">{txHash}</span>
+      {/* Approval progress */}
+      {isApproving && (
+        <div className="text-xs text-blue-300 bg-blue-950/40 border border-blue-900 rounded-lg p-3 flex items-center gap-2">
+          <span className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+          Approving {useStrategyStore.getState().sourceAsset} spend for Meridian Router…
         </div>
       )}
 
+      {/* Execution tx hash */}
+      {executionTxHash && !strategyId && (
+        <div className="text-xs text-gray-400 font-mono break-all bg-gray-900 border border-gray-800 rounded-lg p-3">
+          TX submitted: <span className="text-meridian-400">{executionTxHash}</span>
+        </div>
+      )}
+
+      {/* Error */}
       {error && (
         <div className="text-xs text-red-400 bg-red-950/40 border border-red-900 rounded-lg p-3">
-          {(error as { shortMessage?: string }).shortMessage ?? error.message}
-          <button
-            onClick={reset}
-            className="ml-2 underline hover:no-underline"
-          >
+          {error.includes('shortMessage')
+            ? error
+            : error.slice(0, 200)}
+          <button onClick={reset} className="ml-2 underline hover:no-underline">
             Dismiss
           </button>
         </div>
       )}
 
+      {/* Execute button with staged label */}
       <button
         onClick={execute}
-        disabled={isBusy || isStale}
-        className="w-full bg-meridian-600 hover:bg-meridian-500 disabled:opacity-40 disabled:cursor-not-allowed text-white py-3 rounded-lg font-medium transition-colors mt-2"
+        disabled={isBusy || isStale || isSuccess}
+        className="w-full bg-meridian-600 hover:bg-meridian-500 disabled:opacity-40 disabled:cursor-not-allowed text-white py-3 rounded-lg font-medium transition-colors mt-2 flex items-center justify-center gap-2"
       >
-        {buttonLabel()}
+        {isBusy && (
+          <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+        )}
+        {STAGE_LABELS[stage] ?? 'Execute Selected Route'}
       </button>
 
       <p className="text-xs text-gray-500 text-center">
