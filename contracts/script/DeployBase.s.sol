@@ -32,7 +32,7 @@ contract DeployBase is Script {
     function run() external {
         require(
             block.chainid == 8453 || block.chainid == 84532,
-            "DeployBase: wrong chain — must be Base (8453) or Base Sepolia (84532)"
+            "DeployBase: wrong chain - must be Base (8453) or Base Sepolia (84532)"
         );
 
         address relayer  = vm.envAddress("RELAYER_ADDRESS");

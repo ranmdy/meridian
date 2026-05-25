@@ -50,7 +50,7 @@ const MOCK_ROUTES = [
   },
 ];
 
-function riskColor(score) {
+function riskColor(score: number) {
   if (score < 30) return "text-green-400";
   if (score < 60) return "text-yellow-400";
   return "text-red-400";
@@ -79,7 +79,7 @@ function Navbar() {
   );
 }
 
-function RouteCard({ route }) {
+function RouteCard({ route }: { route: typeof MOCK_ROUTES[number] }) {
   return (
     <div
       className={`w-full text-left rounded-xl border p-5 transition-all cursor-pointer ${
@@ -101,7 +101,7 @@ function RouteCard({ route }) {
       </div>
 
       <div className="flex items-center gap-1 flex-wrap mb-4">
-        {route.steps.map((step, i) => (
+        {route.steps.map((step: typeof MOCK_ROUTES[number]["steps"][number], i: number) => (
           <div key={i} className="flex items-center gap-1">
             <span className="text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1 font-mono text-gray-300">
               {step.icon} {step.label}
