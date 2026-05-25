@@ -29,7 +29,7 @@ export function RouteList() {
   const { address } = useAccount();
   const { routes, selectedRouteIndex, selectRoute, quoteExpiresAt, sourceChain, mode, autoExplanation, autoAlternatives } = useStrategyStore();
   const {
-    execute, stage, isApproving, isExecuting,
+    execute, stage, isApproving,
     isPending, isConfirming, isSuccess,
     strategyId, executionTxHash, error, reset,
   } = useExecuteStrategy();
