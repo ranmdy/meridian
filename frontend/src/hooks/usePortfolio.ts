@@ -16,16 +16,6 @@ const ERC20_BALANCE_ABI = [
   },
 ] as const;
 
-const _ERC20_DECIMALS_ABI = [
-  {
-    name: 'decimals',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint8' }],
-  },
-] as const;
-
 export interface ChainAsset {
   chainId: number;
   chainName: string;
