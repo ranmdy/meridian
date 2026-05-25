@@ -31,7 +31,7 @@ function StatusIcon({ status }: { status: StepStatus['status'] }) {
   }
   // pending
   return (
-    <span className="flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white/30 text-xs">
+    <span className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-700 text-gray-600 text-xs">
       {' '}
     </span>
   );
@@ -51,10 +51,10 @@ export function StepTracker({ status }: StepTrackerProps) {
       <div
         className={`rounded-xl px-4 py-3 text-sm font-medium ${
           overallDone
-            ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+            ? 'bg-green-950/40 text-green-400 border border-green-900'
             : overallFailed
-            ? 'bg-red-500/10 text-red-400 border border-red-500/20'
-            : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+            ? 'bg-red-950/40 text-red-400 border border-red-900'
+            : 'bg-blue-950/40 text-blue-400 border border-blue-900'
         }`}
       >
         {overallDone && 'Strategy complete — assets delivered to destination wallet.'}
@@ -66,7 +66,7 @@ export function StepTracker({ status }: StepTrackerProps) {
           <>
             Step {status.currentStep + 1} of {status.totalSteps} in progress
             {status.elapsedSeconds !== undefined && (
-              <span className="text-white/40 ml-2">
+              <span className="text-gray-500 ml-2">
                 ({Math.floor(status.elapsedSeconds / 60)}m {status.elapsedSeconds % 60}s elapsed)
               </span>
             )}
@@ -86,7 +86,7 @@ export function StepTracker({ status }: StepTrackerProps) {
                 {!isLast && (
                   <div
                     className={`w-px flex-1 my-1 ${
-                      step.status === 'done' ? 'bg-green-500/40' : 'bg-white/10'
+                      step.status === 'done' ? 'bg-green-900' : 'bg-gray-800'
                     }`}
                   />
                 )}
@@ -97,12 +97,12 @@ export function StepTracker({ status }: StepTrackerProps) {
                 <p
                   className={`text-sm font-medium ${
                     step.status === 'done'
-                      ? 'text-white'
+                      ? 'text-gray-100'
                       : step.status === 'in_progress'
                       ? 'text-blue-300'
                       : step.status === 'failed'
                       ? 'text-red-300'
-                      : 'text-white/30'
+                      : 'text-gray-600'
                   }`}
                 >
                   Step {step.index + 1}
@@ -119,12 +119,12 @@ export function StepTracker({ status }: StepTrackerProps) {
                     </a>
                   )}
                   {step.completedAt && (
-                    <span className="text-xs text-white/40">
+                    <span className="text-xs text-gray-500">
                       {new Date(step.completedAt * 1000).toLocaleTimeString()}
                     </span>
                   )}
                   {step.estimatedCompletionAt && step.status === 'in_progress' && (
-                    <span className="text-xs text-white/40">
+                    <span className="text-xs text-gray-500">
                       ETA {new Date(step.estimatedCompletionAt * 1000).toLocaleTimeString()}
                     </span>
                   )}
