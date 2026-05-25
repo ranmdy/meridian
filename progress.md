@@ -155,22 +155,23 @@
 ### 1.3 Relayer Network v1
 
 - [x] Set up Bull job queue (Redis-backed) for relayer tasks — BullMQ integrated
-- [~] Implement `RelayerManager` service:
-  - [~] Job: `monitorBridgeConfirmation(strategyId, bridgeTxHash, chain)`
-  - [~] Job: `callContinueStrategy(strategyId, stepIndex)` after confirmation
+- [x] Implement `RelayerManager` service:
+  - [x] Job: `monitorBridgeConfirmation(strategyId, bridgeTxHash, chain)` — real tx receipt check via viem
+  - [x] Job: `callContinueStrategy(strategyId, stepIndex)` — signs + broadcasts via relayer wallet
   - [x] Retry logic: exponential backoff, max 5 retries
-  - [ ] Fallback route: if bridge fails, attempt alternate bridge
-  - [~] Job: `notifyFrontend(strategyId, status)` via WebSocket
-- [ ] Set up event listeners per chain (via Alchemy/QuickNode WebSocket):
-  - [ ] Listen for `StrategyStarted` events
-  - [ ] Listen for `StepExecuted` events
-  - [ ] Listen for bridge destination events (Stargate, Across, Wormhole)
-  - [ ] Listen for `StrategyCompleted` events
-  - [ ] Listen for `StrategyFailed` events
-- [~] Relayer wallet management:
+  - [x] Fallback route: cycles through stargate→across→hop→wormhole on repeated failure
+  - [x] Job: `notifyFrontend(strategyId, status)` via WebSocket
+- [x] Set up event listeners per chain (via viem watchContractEvent — WebSocket or HTTP polling):
+  - [x] Listen for `StrategyStarted` events
+  - [x] Listen for `StepExecuted` events → triggers `continueStrategy` automatically
+  - [x] Listen for `StrategyCompleted` events
+  - [x] Listen for `StrategyFailed` events → triggers fallback bridge retry
+  - [ ] Listen for bridge destination events (Stargate, Across, Wormhole receipt events)
+- [x] Relayer wallet management:
   - [x] Fund relayer wallets on each supported chain (Anvil test keys configured)
-  - [ ] Monitor relayer wallet balances (alert if low)
+  - [x] Monitor relayer wallet balances (warn at < 0.05 ETH, check every 5 min)
   - [ ] Secure key management (AWS KMS or HashiCorp Vault)
+- [ ] Requires: `RELAYER_PRIVATE_KEY` + `ROUTER_ADDRESS_{ETH,BASE,ARB,BSC,POLY}` in env
 
 ### 1.4 Live Execution Tracker
 
@@ -197,16 +198,16 @@
 
 ### 1.6 10+ Protocol Integrations
 
-- [ ] Stargate (bridge) ✓ Phase 0
-- [ ] Across Protocol (bridge)
-- [ ] Wormhole (bridge)
-- [ ] Hop Protocol (bridge)
-- [ ] Uniswap v3 (DEX) ✓ Phase 0
+- [x] Stargate (bridge) — live quotes via Li.Fi aggregator
+- [x] Across Protocol (bridge) — live quotes via Li.Fi aggregator
+- [x] Hop Protocol (bridge) — live quotes via Li.Fi aggregator
+- [x] Wormhole (bridge) — live quotes via Li.Fi aggregator
+- [x] Uniswap v3 (DEX) — live swap quotes via 1inch v6 API
 - [ ] Curve (DEX — stablecoin swaps)
-- [ ] Aave v3 (lending) ✓ Phase 0
-- [ ] Compound v3 (lending)
-- [ ] Morpho (lending)
-- [ ] GMX (yield — perp LP)
+- [x] Aave v3 (lending) — live APY via DeFiLlama (ETH, Base, Arbitrum)
+- [x] Compound v3 (lending) — live APY via DeFiLlama
+- [x] Morpho (lending) — live APY via DeFiLlama
+- [ ] GMX (yield — perp LP) — needs direct GMX API integration
 
 ### 1.7 Simulation Engine
 
