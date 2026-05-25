@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { verifyMessage } from 'viem';
 import type { StrategyEngine } from '../../services/strategy-engine/index.js';
 import type { QuoteEngine } from '../../services/quote-engine/index.js';
+import { SimulationService } from '../../services/simulation/index.js';
+
+const simulationService = new SimulationService();
 
 const OptimizeSchema = z.object({
   sourceAsset: z.string().min(1),
@@ -67,6 +70,50 @@ export async function strategyRoutes(
     }
 
     return reply.send(result);
+  });
+
+  // POST /strategy/simulate — pre-execution simulation for a single route
+  fastify.post<{
+    Body: {
+      routeIndex: number;
+      fromAddress: string;
+      sourceChain: number;
+    };
+  }>('/strategy/simulate', async (request, reply) => {
+    const { routeIndex, fromAddress, sourceChain } = request.body ?? {};
+    if (typeof routeIndex !== 'number' || !fromAddress || !sourceChain) {
+      return reply.status(400).send({ error: 'routeIndex, fromAddress, and sourceChain are required' });
+    }
+
+    // We can only simulate against cached routes — the client must optimize first.
+    // For now, simulate optimistically without a cached route context:
+    // The SimulationService gracefully falls back when Tenderly isn't configured.
+    const dummyRoute = opts.strategyEngine.optimize({
+      sourceAsset: 'ETH',
+      sourceChain,
+      sourceAmountUsd: 1000,
+      destinationChain: sourceChain === 1 ? 42161 : 1,
+      riskTolerance: 3,
+      timeHorizonDays: 30,
+    }).routes[routeIndex];
+
+    if (!dummyRoute) {
+      return reply.status(404).send({ error: 'Route not found' });
+    }
+
+    const result = await simulationService.simulate(dummyRoute, fromAddress, sourceChain);
+    return reply.send(result);
+  });
+
+  // GET /quotes/gas — live gas price per chain
+  fastify.get<{ Querystring: { chain: string } }>('/quotes/gas', async (request, reply) => {
+    const { chain } = request.query;
+    if (chain) {
+      const quote = opts.quoteEngine.getGasQuote(Number(chain));
+      if (!quote) return reply.status(404).send({ error: 'No gas quote for this chain' });
+      return reply.send(quote);
+    }
+    return reply.send(opts.quoteEngine.getAllGasQuotes());
   });
 
   // GET /strategy/graph — debug endpoint (dev only)

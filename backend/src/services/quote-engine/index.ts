@@ -1,3 +1,5 @@
+import { createPublicClient, http, formatGwei } from 'viem';
+import { mainnet, arbitrum, base, bsc, polygon } from 'viem/chains';
 import { config } from '../../config/index.js';
 
 // ─── DeFiLlama pool-to-protocol/chain/asset mapping ───────────────────────────
@@ -63,6 +65,15 @@ export interface ApyQuote {
   isStale: boolean;
 }
 
+export interface GasQuote {
+  chain: number;
+  gasPriceGwei: number;
+  /** Estimated cost in USD for a typical DeFi tx (~200k gas) */
+  typicalTxUsd: number;
+  timestamp: number;
+  isStale: boolean;
+}
+
 // ─── Cache Entry ──────────────────────────────────────────────────────────────
 
 interface CacheEntry<T> {
@@ -72,11 +83,22 @@ interface CacheEntry<T> {
 
 // ─── Quote Engine ─────────────────────────────────────────────────────────────
 
+// ETH price used for gas USD conversion — replace with Chainlink before mainnet
+const ETH_PRICE_USD = 3000;
+const TYPICAL_GAS_UNITS = 200_000;
+
 export class QuoteEngine {
   private bridgeCache = new Map<string, CacheEntry<BridgeQuote>>();
-  private swapCache = new Map<string, CacheEntry<SwapQuote>>();
-  private apyCache = new Map<string, CacheEntry<ApyQuote>>();
+  private swapCache  = new Map<string, CacheEntry<SwapQuote>>();
+  private apyCache   = new Map<string, CacheEntry<ApyQuote>>();
+  private gasCache   = new Map<number, CacheEntry<GasQuote>>();
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
+  private onRefreshCallbacks: Array<(quotes: ApyQuote[]) => void> = [];
+
+  /** Register a callback that fires after each successful APY refresh. */
+  onApyRefresh(cb: (quotes: ApyQuote[]) => void) {
+    this.onRefreshCallbacks.push(cb);
+  }
 
   /** Start the 15-second polling loop. */
   start() {
@@ -86,6 +108,23 @@ export class QuoteEngine {
 
   stop() {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
+  }
+
+  /** Return all APY quotes currently in cache. */
+  getAllApyQuotes(): ApyQuote[] {
+    return Array.from(this.apyCache.values()).map((e) => this.withStaleness(e));
+  }
+
+  /** Gas price for a given chain (gwei + USD estimate). */
+  getGasQuote(chainId: number): GasQuote | null {
+    const entry = this.gasCache.get(chainId);
+    if (!entry) return null;
+    return this.withStaleness(entry);
+  }
+
+  /** All gas quotes for display / edge-cost updates. */
+  getAllGasQuotes(): GasQuote[] {
+    return Array.from(this.gasCache.values()).map((e) => this.withStaleness(e));
   }
 
   // ─── Public Accessors ──────────────────────────────────────────────────────
@@ -128,7 +167,13 @@ export class QuoteEngine {
       this.fetchBridgeQuotes(),
       this.fetchSwapQuotes(),
       this.fetchApyData(),
+      this.fetchGasPrices(),
     ]);
+    // Notify graph refresh subscribers after each cycle
+    if (this.onRefreshCallbacks.length > 0) {
+      const quotes = this.getAllApyQuotes();
+      for (const cb of this.onRefreshCallbacks) cb(quotes);
+    }
   }
 
   /**
@@ -352,6 +397,49 @@ export class QuoteEngine {
     } catch {
       // retain last cached values — next poll will retry
     }
+  }
+
+  /**
+   * Live gas prices via viem getGasPrice() — no API key required.
+   * Falls back to last cached value on RPC error.
+   */
+  private async fetchGasPrices() {
+    const now = Date.now();
+
+    const chains = [
+      { chain: mainnet,  rpcUrl: config.chains.ethereum.rpcUrl,  chainId: 1 },
+      { chain: base,     rpcUrl: config.chains.base.rpcUrl,      chainId: 8453 },
+      { chain: arbitrum, rpcUrl: config.chains.arbitrum.rpcUrl,  chainId: 42161 },
+      { chain: bsc,      rpcUrl: config.chains.bnb.rpcUrl,       chainId: 56 },
+      { chain: polygon,  rpcUrl: config.chains.polygon.rpcUrl,   chainId: 137 },
+    ];
+
+    await Promise.allSettled(
+      chains.map(async ({ chain, rpcUrl, chainId }) => {
+        if (!rpcUrl) return;
+        try {
+          const client = createPublicClient({ chain, transport: http(rpcUrl) });
+          const gasPrice = await client.getGasPrice();
+          const gasPriceGwei = parseFloat(formatGwei(gasPrice));
+          // cost = gasPrice (wei) × typical gas units, converted to ETH, then USD
+          const typicalTxUsd =
+            (Number(gasPrice) * TYPICAL_GAS_UNITS * ETH_PRICE_USD) / 1e18;
+
+          this.gasCache.set(chainId, {
+            data: {
+              chain: chainId,
+              gasPriceGwei,
+              typicalTxUsd,
+              timestamp: Math.floor(now / 1000),
+              isStale: false,
+            },
+            fetchedAt: now,
+          });
+        } catch {
+          // retain last cached value
+        }
+      }),
+    );
   }
 
   // ─── Staleness ────────────────────────────────────────────────────────────

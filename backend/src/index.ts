@@ -77,6 +77,9 @@ fastify.get('/health', async () => ({
 
 const start = async () => {
   try {
+    // Wire live APY data into the strategy engine graph after each quote poll
+    quoteEngine.onApyRefresh((quotes) => strategyEngine.refreshFromQuotes(quotes));
+
     quoteEngine.start();
     relayerManager.start();
 
