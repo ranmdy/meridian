@@ -26,8 +26,10 @@ import {
   type WalletClient,
   type Chain,
 } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import { mainnet, arbitrum, base, bsc, polygon } from 'viem/chains';
+import { emitWebhookEvent } from '../webhooks/index.js';
+import { mainnet, arbitrum, base, bsc, polygon, optimism, avalanche, scroll, zkSync } from 'viem/chains';
+import { getCachedRelayerAccount, signerDescription } from '../kms-signer/index.js';
+import { monitoring } from '../monitoring/index.js';
 import { config } from '../../config/index.js';
 
 // ─── ABI fragments ────────────────────────────────────────────────────────────
@@ -56,6 +58,10 @@ export interface RelayerJob {
   retries: number;
   maxRetries: number;
   lastError?: string;
+  /** Unix ms — when the strategy quote expires. 0 = no expiry. */
+  quoteExpiresAt: number;
+  /** Set to true when the quote expired and re-optimization was triggered. */
+  reoptimized: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -67,6 +73,7 @@ interface ChainSetup {
 }
 
 type StatusListener = (strategyId: string, job: RelayerJob) => void;
+type ReoptimizeCallback = (strategyId: string) => Promise<void>;
 
 // ─── Fallback bridge order ────────────────────────────────────────────────────
 // When a bridge step fails we try the next protocol in this list.
@@ -80,17 +87,26 @@ const LOW_BALANCE_ETH = 0.05;
 export class RelayerManager {
   private jobs = new Map<string, RelayerJob>();
   private listeners: StatusListener[] = [];
+  private reoptimizeCb: ReoptimizeCallback | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private balanceTimer: ReturnType<typeof setInterval> | null = null;
   private unwatchers: Array<() => void> = [];
 
-  private publicClients = new Map<number, PublicClient>();
-  private walletClients = new Map<number, WalletClient>();
-  private relayerAccount: ReturnType<typeof privateKeyToAccount> | null = null;
+  private publicClients  = new Map<number, PublicClient>();
+  private walletClients  = new Map<number, WalletClient>();
 
   /** Register a callback to receive job status updates (WebSocket bridge). */
   onStatusUpdate(cb: StatusListener) {
     this.listeners.push(cb);
+  }
+
+  /**
+   * Register a callback invoked when a job's quote has expired mid-execution.
+   * The callback should re-run the strategy optimizer and update the job's
+   * quoteExpiresAt with the fresh expiry before returning.
+   */
+  onQuoteExpired(cb: ReoptimizeCallback): void {
+    this.reoptimizeCb = cb;
   }
 
   /** Submit a new bridge monitoring job (called by the API layer after tx broadcast). */
@@ -100,6 +116,7 @@ export class RelayerManager {
     bridgeTxHash: string,
     sourceChain: number,
     destinationChain: number,
+    quoteExpiresAt = 0,
   ): RelayerJob {
     const job: RelayerJob = {
       id: `${strategyId}-${stepIndex}`,
@@ -111,6 +128,8 @@ export class RelayerManager {
       status: 'pending',
       retries: 0,
       maxRetries: 5,
+      quoteExpiresAt,
+      reoptimized: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -121,8 +140,8 @@ export class RelayerManager {
   }
 
   /** Start the relayer: set up clients, event listeners, balance monitor. */
-  start() {
-    this.initClients();
+  async start() {
+    await this.initClients();
     this.subscribeToChainEvents();
     this.startBalanceMonitor();
 
@@ -147,25 +166,21 @@ export class RelayerManager {
 
   // ─── Client initialisation ─────────────────────────────────────────────────
 
-  private initClients() {
-    const pk = process.env.RELAYER_PRIVATE_KEY as Hex | undefined;
-    if (pk) {
-      this.relayerAccount = privateKeyToAccount(pk);
-      console.log(`[Relayer] Account: ${this.relayerAccount.address}`);
-    } else {
-      console.warn('[Relayer] RELAYER_PRIVATE_KEY not set — tx signing disabled (dev mode)');
-    }
-
+  private async initClients() {
     const setups: ChainSetup[] = [
-      { chain: mainnet,  rpcUrl: config.chains.ethereum.rpcUrl, routerEnvKey: 'ROUTER_ADDRESS_ETH' },
-      { chain: base,     rpcUrl: config.chains.base.rpcUrl,     routerEnvKey: 'ROUTER_ADDRESS_BASE' },
-      { chain: arbitrum, rpcUrl: config.chains.arbitrum.rpcUrl, routerEnvKey: 'ROUTER_ADDRESS_ARB' },
-      { chain: bsc,      rpcUrl: config.chains.bnb.rpcUrl,      routerEnvKey: 'ROUTER_ADDRESS_BSC' },
-      { chain: polygon,  rpcUrl: config.chains.polygon.rpcUrl,  routerEnvKey: 'ROUTER_ADDRESS_POLY' },
+      { chain: mainnet,   rpcUrl: config.chains.ethereum.rpcUrl,  routerEnvKey: 'ROUTER_ADDRESS_ETH'    },
+      { chain: base,      rpcUrl: config.chains.base.rpcUrl,      routerEnvKey: 'ROUTER_ADDRESS_BASE'   },
+      { chain: arbitrum,  rpcUrl: config.chains.arbitrum.rpcUrl,  routerEnvKey: 'ROUTER_ADDRESS_ARB'    },
+      { chain: bsc,       rpcUrl: config.chains.bnb.rpcUrl,       routerEnvKey: 'ROUTER_ADDRESS_BSC'    },
+      { chain: polygon,   rpcUrl: config.chains.polygon.rpcUrl,   routerEnvKey: 'ROUTER_ADDRESS_POLY'   },
+      { chain: optimism,  rpcUrl: config.chains.optimism.rpcUrl,  routerEnvKey: 'ROUTER_ADDRESS_OPT'    },
+      { chain: avalanche, rpcUrl: config.chains.avalanche.rpcUrl, routerEnvKey: 'ROUTER_ADDRESS_AVAX'   },
+      { chain: scroll,    rpcUrl: config.chains.scroll.rpcUrl,    routerEnvKey: 'ROUTER_ADDRESS_SCROLL' },
+      { chain: zkSync,    rpcUrl: config.chains.zkSync.rpcUrl,    routerEnvKey: 'ROUTER_ADDRESS_ZKSYNC' },
     ];
 
-    for (const { chain, rpcUrl } of setups) {
-      if (!rpcUrl) continue;
+    await Promise.all(setups.map(async ({ chain, rpcUrl }) => {
+      if (!rpcUrl) return;
 
       // Prefer WebSocket transport for event watching; fall back to HTTP
       const isWs = rpcUrl.startsWith('wss://') || rpcUrl.startsWith('ws://');
@@ -174,16 +189,20 @@ export class RelayerManager {
       const pub = createPublicClient({ chain, transport }) as PublicClient;
       this.publicClients.set(chain.id, pub);
 
-      if (this.relayerAccount) {
+      const account = await getCachedRelayerAccount(chain.id);
+      if (account) {
         const httpUrl = isWs ? rpcUrl.replace(/^wss?:\/\//, 'https://') : rpcUrl;
         const wal = createWalletClient({
-          account: this.relayerAccount,
+          account,
           chain,
           transport: http(httpUrl),
         }) as WalletClient;
         this.walletClients.set(chain.id, wal);
+        console.log(`[Relayer] chain=${chain.id} signer=${signerDescription(chain.id)} addr=${account.address}`);
+      } else {
+        console.warn(`[Relayer] chain=${chain.id} no signer configured — tx signing disabled`);
       }
-    }
+    }));
 
     const active = [...this.publicClients.keys()];
     if (active.length) {
@@ -197,11 +216,15 @@ export class RelayerManager {
 
   private subscribeToChainEvents() {
     const routerEnvKeys: Record<number, string> = {
-      1: 'ROUTER_ADDRESS_ETH',
-      8453: 'ROUTER_ADDRESS_BASE',
-      42161: 'ROUTER_ADDRESS_ARB',
-      56: 'ROUTER_ADDRESS_BSC',
-      137: 'ROUTER_ADDRESS_POLY',
+      1:      'ROUTER_ADDRESS_ETH',
+      8453:   'ROUTER_ADDRESS_BASE',
+      42161:  'ROUTER_ADDRESS_ARB',
+      56:     'ROUTER_ADDRESS_BSC',
+      137:    'ROUTER_ADDRESS_POLY',
+      10:     'ROUTER_ADDRESS_OPT',
+      43114:  'ROUTER_ADDRESS_AVAX',
+      534352: 'ROUTER_ADDRESS_SCROLL',
+      324:    'ROUTER_ADDRESS_ZKSYNC',
     };
 
     let subscribed = 0;
@@ -217,8 +240,9 @@ export class RelayerManager {
         eventName: 'StrategyStarted',
         onLogs: (logs) => {
           for (const log of logs) {
-            const { strategyId } = log.args as { strategyId: Hex };
+            const { strategyId, user } = log.args as { strategyId: Hex; user: Address };
             console.log(`[Relayer] StrategyStarted chain=${chainId} id=${strategyId}`);
+            emitWebhookEvent(user, 'StrategyStarted', strategyId, { chainId });
           }
         },
       });
@@ -244,9 +268,17 @@ export class RelayerManager {
         eventName: 'StrategyCompleted',
         onLogs: (logs) => {
           for (const log of logs) {
-            const { strategyId, finalAmount } = log.args as { strategyId: Hex; finalAmount: bigint };
+            const { strategyId, destination, finalAmount } = log.args as {
+              strategyId: Hex;
+              destination: Address;
+              finalAmount: bigint;
+            };
             console.log(`[Relayer] StrategyCompleted id=${strategyId} amount=${finalAmount}`);
             this.markStrategyDone(strategyId);
+            emitWebhookEvent(destination, 'StrategyCompleted', strategyId, {
+              finalAmount: finalAmount.toString(),
+              chainId,
+            });
           }
         },
       });
@@ -263,7 +295,10 @@ export class RelayerManager {
               failedStep: bigint;
               reason: string;
             };
-            console.error(`[Relayer] StrategyFailed id=${strategyId} step=${failedStep} reason=${reason}`);
+            void monitoring.captureError(
+              new Error(`StrategyFailed on-chain: ${reason}`),
+              { strategyId, failedStep: Number(failedStep), chainId },
+            );
             this.handleChainFailure(strategyId, Number(failedStep), reason);
           }
         },
@@ -296,6 +331,8 @@ export class RelayerManager {
         status: 'running',
         retries: 0,
         maxRetries: 5,
+        quoteExpiresAt: 0,
+        reoptimized: false,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -330,40 +367,79 @@ export class RelayerManager {
         id: jobId, strategyId, stepIndex: failedStep, bridgeTxHash: '',
         sourceChain: 0, destinationChain: 0,
         status: 'pending', retries: 0, maxRetries: 5,
+        quoteExpiresAt: 0, reoptimized: false,
         createdAt: Date.now(), updatedAt: Date.now(),
       };
       this.jobs.set(jobId, job);
     }
 
-    job.lastError = reason;
+    const resolvedJob = job;
+    resolvedJob.lastError = reason;
 
-    if (job.retries < job.maxRetries) {
-      const fallback = BRIDGE_FALLBACK_ORDER[job.retries % BRIDGE_FALLBACK_ORDER.length];
+    if (resolvedJob.retries < resolvedJob.maxRetries) {
+      const fallback = BRIDGE_FALLBACK_ORDER[resolvedJob.retries % BRIDGE_FALLBACK_ORDER.length];
       console.warn(
         `[Relayer] Step ${failedStep} failed (${reason}) — ` +
-        `retrying via ${fallback} (attempt ${job.retries + 1}/${job.maxRetries})`,
+        `retrying via ${fallback} (attempt ${resolvedJob.retries + 1}/${resolvedJob.maxRetries})`,
       );
-      job.retries++;
-      job.status = 'pending';
+      resolvedJob.retries++;
+      resolvedJob.status = 'pending';
     } else {
-      job.status = 'failed';
-      console.error(`[Relayer] Strategy ${strategyId} step ${failedStep} exhausted all retries`);
+      resolvedJob.status = 'failed';
+      void monitoring.captureError(
+        new Error(`Strategy exhausted all retries after ${resolvedJob.maxRetries} attempts`),
+        { strategyId, failedStep, sourceChain: resolvedJob.sourceChain },
+        'fatal',
+      );
     }
 
-    job.updatedAt = Date.now();
-    this.notify(strategyId, job);
+    resolvedJob.updatedAt = Date.now();
+    this.notify(strategyId, resolvedJob);
   }
 
   // ─── continueStrategy tx ──────────────────────────────────────────────────
 
+  /**
+   * Check whether the job's route quote has expired.
+   * If so and a re-optimize callback is registered, trigger it before continuing.
+   */
+  private async checkAndReoptimizeIfExpired(job: RelayerJob): Promise<void> {
+    if (!job.quoteExpiresAt || Date.now() < job.quoteExpiresAt) return;
+    if (job.reoptimized) return; // already re-optimized once for this job
+
+    console.warn(
+      `[Relayer] Quote expired for strategy ${job.strategyId} at step ${job.stepIndex} — re-optimizing`,
+    );
+    job.reoptimized = true;
+
+    if (this.reoptimizeCb) {
+      try {
+        await this.reoptimizeCb(job.strategyId);
+        console.log(`[Relayer] Re-optimization complete for strategy ${job.strategyId}`);
+      } catch (err) {
+        console.error(
+          `[Relayer] Re-optimization failed for ${job.strategyId}:`,
+          (err as Error).message,
+        );
+      }
+    } else {
+      console.warn('[Relayer] No re-optimize callback registered — continuing with stale quotes');
+    }
+  }
+
   private async callContinueStrategy(job: RelayerJob, nextStepIndex: number) {
+    // Re-optimize if the quote expired before we continue to the next step
+    await this.checkAndReoptimizeIfExpired(job);
+
     const walletClient = this.walletClients.get(job.destinationChain);
     const publicClient = this.publicClients.get(job.destinationChain);
     const suffix = this.chainEnvSuffix(job.destinationChain);
     const routerAddress = process.env[`ROUTER_ADDRESS_${suffix}`] as Address | undefined;
 
+    const relayerAddress = walletClient?.account?.address;
+
     // Dev mode — no real chain available
-    if (!walletClient || !publicClient || !routerAddress || !this.relayerAccount) {
+    if (!walletClient || !publicClient || !routerAddress || !relayerAddress) {
       console.log(
         `[Relayer] continueStrategy strategyId=${job.strategyId} nextStep=${nextStepIndex} (dev — no tx)`,
       );
@@ -383,7 +459,7 @@ export class RelayerManager {
         abi: ROUTER_ABI,
         functionName: 'continueStrategy',
         args: [job.strategyId, BigInt(nextStepIndex)],
-        account: this.relayerAccount.address,
+        account: relayerAddress,
       });
 
       const hash = await walletClient.writeContract(
@@ -407,19 +483,23 @@ export class RelayerManager {
   // ─── Wallet balance monitor ────────────────────────────────────────────────
 
   private startBalanceMonitor() {
-    if (!this.relayerAccount) return;
+    if (this.walletClients.size === 0) return;
 
     const check = async () => {
-      for (const [chainId, client] of this.publicClients) {
+      for (const [chainId, walletClient] of this.walletClients) {
+        const client = this.publicClients.get(chainId);
+        if (!client || !walletClient.account) continue;
         try {
-          const balance = await client.getBalance({ address: this.relayerAccount!.address });
+          const balance = await client.getBalance({ address: walletClient.account.address });
           const eth = parseFloat(formatEther(balance));
 
           if (eth < LOW_BALANCE_ETH) {
-            console.warn(
-              `[Relayer] ⚠️  LOW BALANCE chain=${chainId}: ` +
-              `${eth.toFixed(4)} ETH — top up ${this.relayerAccount!.address}`,
-            );
+            void monitoring.alert(`Relayer low balance on chain ${chainId}`, {
+              chainId,
+              balanceEth: eth,
+              address: walletClient.account.address,
+              thresholdEth: LOW_BALANCE_ETH,
+            });
           } else {
             console.log(`[Relayer] Balance chain=${chainId}: ${eth.toFixed(4)} ETH ✓`);
           }
@@ -485,7 +565,9 @@ export class RelayerManager {
 
     if (job.retries >= job.maxRetries) {
       job.status = 'failed';
-      console.error(`[Relayer] Job ${job.id} failed after ${job.retries} retries: ${error}`);
+      void monitoring.captureError(new Error(error), {
+        jobId: job.id, strategyId: job.strategyId, retries: job.retries,
+      });
     } else {
       const backoffMs = Math.pow(2, job.retries) * 1_000;
       job.status = 'pending';
@@ -505,6 +587,7 @@ export class RelayerManager {
   private chainEnvSuffix(chainId: number): string {
     const map: Record<number, string> = {
       1: 'ETH', 8453: 'BASE', 42161: 'ARB', 56: 'BSC', 137: 'POLY',
+      10: 'OPT', 43114: 'AVAX', 534352: 'SCROLL', 324: 'ZKSYNC',
     };
     return map[chainId] ?? String(chainId);
   }

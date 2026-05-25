@@ -194,6 +194,7 @@ export class QuoteEngine {
     // Li.Fi chain ID names
     const chainNames: Record<number, string> = {
       1: 'ETH', 42161: 'ARB', 8453: 'BAS', 56: 'BSC', 137: 'POL',
+      10: 'OPT', 43114: 'AVA', 101: 'SOL', 534352: 'SCR', 324: 'ERA',
     };
 
     // ERC-20 addresses (or native sentinel) per asset/chain

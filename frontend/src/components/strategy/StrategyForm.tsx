@@ -39,7 +39,8 @@ export function StrategyForm() {
     destinationVerified, setDestinationVerified,
     isOptimizing, setOptimizing,
     optimizeError, setOptimizeError,
-    setRoutes,
+    mode, setMode,
+    setRoutes, setAutoResult,
     toRequest,
   } = useStrategyStore();
 
@@ -79,8 +80,13 @@ export function StrategyForm() {
     setOptimizing(true);
     setOptimizeError(null);
     try {
-      const result = await api.strategy.optimize(toRequest());
-      setRoutes(result.routes, result.quoteExpiresAt);
+      if (mode === 'auto') {
+        const result = await api.strategy.autoOptimize(toRequest());
+        setAutoResult(result.route, result.explanation, result.alternatives, result.quoteExpiresAt);
+      } else {
+        const result = await api.strategy.optimize(toRequest());
+        setRoutes(result.routes, result.quoteExpiresAt);
+      }
     } catch (err) {
       setOptimizeError(err instanceof Error ? err.message : 'Failed to fetch routes');
     } finally {
@@ -90,7 +96,33 @@ export function StrategyForm() {
 
   return (
     <div className="glass p-6 space-y-6">
-      <h2 className="text-lg font-semibold text-gray-100">Build Your Strategy</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-gray-100">Build Your Strategy</h2>
+
+        {/* Auto Mode toggle */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">Auto Mode</span>
+          <button
+            onClick={() => setMode(mode === 'auto' ? 'manual' : 'auto')}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+              mode === 'auto' ? 'bg-meridian-600' : 'bg-gray-700'
+            }`}
+            title="Auto Mode picks the single best route for your risk tolerance"
+          >
+            <span
+              className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                mode === 'auto' ? 'translate-x-5' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+      </div>
+
+      {mode === 'auto' && (
+        <div className="text-xs text-meridian-400 bg-meridian-950/30 border border-meridian-800 rounded-lg px-3 py-2">
+          Auto Mode will select the single best route for your risk tolerance and explain why.
+        </div>
+      )}
 
       {/* Source */}
       <div className="grid grid-cols-2 gap-4">
@@ -213,7 +245,9 @@ export function StrategyForm() {
         disabled={!canOptimize || isOptimizing}
         className="w-full bg-meridian-600 hover:bg-meridian-500 disabled:opacity-40 disabled:cursor-not-allowed text-white py-3 rounded-lg font-medium transition-colors"
       >
-        {isOptimizing ? 'Finding best routes…' : 'Find Best Routes'}
+        {isOptimizing
+          ? mode === 'auto' ? 'Auto-selecting best route…' : 'Finding best routes…'
+          : mode === 'auto' ? 'Auto-Optimize' : 'Find Best Routes'}
       </button>
 
       {!isConnected && (

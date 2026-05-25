@@ -4,14 +4,20 @@ import { findTopRoutes } from './pathfinder.js';
 import type { StrategyRequest, StrategyResponse } from './types.js';
 import type { ApyQuote } from '../quote-engine/index.js';
 import { config } from '../../config/index.js';
+import { isProtocolFlagged } from '../exploit-feed/index.js';
 
 // Maps DeFiLlama protocol names to graph node ID patterns
 // Graph node IDs follow: {ASSET}_{chainId}_{protocol}_{action}
 const PROTOCOL_NODE_MAP: Record<string, string> = {
-  aave_v3:     'aave',
-  compound_v3: 'compound',
-  morpho:      'morpho',
-  gmx:         'gmx',
+  aave_v3:       'aave',
+  compound_v3:   'compound',
+  morpho:        'morpho',
+  gmx:           'gmx',
+  kamino:        'kamino',
+  layerbank:     'layerbank',
+  zerolend:      'zerolend',
+  scroll_bridge: 'scroll_bridge',
+  zksync_bridge: 'zksync_bridge',
 };
 
 export class StrategyEngine {
@@ -56,10 +62,21 @@ export class StrategyEngine {
   }
 
   /**
+   * Syncs exploit-feed flags into graph nodes so the pathfinder can skip them.
+   * Called automatically before each optimize() call.
+   */
+  private syncExploitFlags(): void {
+    for (const node of this.graph.allNodes()) {
+      node.exploitFlagged = isProtocolFlagged(node.protocol);
+    }
+  }
+
+  /**
    * Find optimal routes for a strategy request.
    * Returns top 3 routes ranked by score.
    */
   optimize(req: StrategyRequest): StrategyResponse {
+    this.syncExploitFlags();
     const routes = findTopRoutes(this.graph, req, 3);
     const now = Date.now();
 

@@ -1,0 +1,105 @@
+name: Testnet Deploy
+
+# Trigger manually with chain selection, or on tags matching v*-testnet
+on:
+  workflow_dispatch:
+    inputs:
+      chains:
+        description: 'Comma-separated chains to deploy (e.g. sepolia,base-sepolia,scroll-sepolia)'
+        required: true
+        default: 'sepolia,base-sepolia'
+      verify:
+        description: 'Verify contracts on block explorer?'
+        required: false
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+  push:
+    tags:
+      - 'v*-testnet'
+
+jobs:
+  deploy-contracts:
+    name: Deploy contracts to testnet
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Build
+        run: forge build
+
+      - name: Deploy to Sepolia
+        if: contains(github.event.inputs.chains, 'sepolia') || github.event_name == 'push'
+        run: |
+          forge script script/Deploy.s.sol \
+            --rpc-url $SEPOLIA_RPC_URL \
+            --broadcast \
+            ${{ github.event.inputs.verify == 'true' && '--verify --etherscan-api-key $ETHERSCAN_API_KEY' || '' }} \
+            -vvv
+        env:
+          PRIVATE_KEY:         ${{ secrets.TESTNET_DEPLOYER_PK }}
+          SEPOLIA_RPC_URL:     ${{ secrets.SEPOLIA_RPC_URL }}
+          ETHERSCAN_API_KEY:   ${{ secrets.ETHERSCAN_API_KEY }}
+          RELAYER_ADDRESS:     ${{ secrets.TESTNET_RELAYER_ADDRESS }}
+          TREASURY_ADDRESS:    ${{ secrets.TESTNET_TREASURY_ADDRESS }}
+          USDC_ADDRESS:        ${{ secrets.USDC_SEPOLIA }}
+
+      - name: Deploy to Base Sepolia
+        if: contains(github.event.inputs.chains, 'base-sepolia') || github.event_name == 'push'
+        run: |
+          forge script script/DeployBase.s.sol \
+            --rpc-url $BASE_SEPOLIA_RPC_URL \
+            --broadcast \
+            ${{ github.event.inputs.verify == 'true' && '--verify --etherscan-api-key $BASESCAN_API_KEY' || '' }} \
+            -vvv
+        env:
+          PRIVATE_KEY:           ${{ secrets.TESTNET_DEPLOYER_PK }}
+          BASE_SEPOLIA_RPC_URL:  ${{ secrets.BASE_SEPOLIA_RPC_URL }}
+          BASESCAN_API_KEY:      ${{ secrets.BASESCAN_API_KEY }}
+          RELAYER_ADDRESS:       ${{ secrets.TESTNET_RELAYER_ADDRESS }}
+          TREASURY_ADDRESS:      ${{ secrets.TESTNET_TREASURY_ADDRESS }}
+          USDC_ADDRESS:          ${{ secrets.USDC_BASE_SEPOLIA }}
+
+      - name: Deploy to Scroll Sepolia
+        if: contains(github.event.inputs.chains, 'scroll-sepolia')
+        run: |
+          forge script script/DeployScroll.s.sol \
+            --rpc-url $SCROLL_SEPOLIA_RPC_URL \
+            --broadcast \
+            ${{ github.event.inputs.verify == 'true' && '--verify --verifier-url https://api-sepolia.scrollscan.com/api --etherscan-api-key $SCROLLSCAN_API_KEY' || '' }} \
+            -vvv
+        env:
+          PRIVATE_KEY:             ${{ secrets.TESTNET_DEPLOYER_PK }}
+          SCROLL_SEPOLIA_RPC_URL:  ${{ secrets.SCROLL_SEPOLIA_RPC_URL }}
+          SCROLLSCAN_API_KEY:      ${{ secrets.SCROLLSCAN_API_KEY }}
+          RELAYER_ADDRESS:         ${{ secrets.TESTNET_RELAYER_ADDRESS }}
+          TREASURY_ADDRESS:        ${{ secrets.TESTNET_TREASURY_ADDRESS }}
+          USDC_ADDRESS:            ${{ secrets.USDC_SCROLL_SEPOLIA }}
+
+      - name: Save deployment addresses
+        if: always()
+        run: |
+          # Collect broadcast output into a summary artifact
+          find broadcast -name 'run-latest.json' | while read f; do
+            chain=$(basename $(dirname $(dirname $f)))
+            addr=$(jq -r '.transactions[0].contractAddress // empty' "$f")
+            echo "$chain router: $addr" >> $GITHUB_STEP_SUMMARY
+          done
+
+      - name: Upload broadcast artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: testnet-broadcasts-${{ github.run_number }}
+          path: contracts/broadcast/
+          retention-days: 30

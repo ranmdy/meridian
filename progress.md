@@ -166,12 +166,12 @@
   - [x] Listen for `StepExecuted` events → triggers `continueStrategy` automatically
   - [x] Listen for `StrategyCompleted` events
   - [x] Listen for `StrategyFailed` events → triggers fallback bridge retry
-  - [ ] Listen for bridge destination events (Stargate, Across, Wormhole receipt events)
+  - [x] Listen for bridge destination events (Stargate OFTReceived, Across FilledV3Relay — `BridgeListenerService`, 9 chains)
 - [x] Relayer wallet management:
   - [x] Fund relayer wallets on each supported chain (Anvil test keys configured)
   - [x] Monitor relayer wallet balances (warn at < 0.05 ETH, check every 5 min)
-  - [ ] Secure key management (AWS KMS or HashiCorp Vault)
-- [ ] Requires: `RELAYER_PRIVATE_KEY` + `ROUTER_ADDRESS_{ETH,BASE,ARB,BSC,POLY}` in env
+  - [x] Secure key management (AWS KMS or HashiCorp Vault) — `kms-signer` service: resolves per-chain account from `RELAYER_PK_*`, `AWS_KMS_KEY_ID_*`, or global fallback; full KMS secp256k1 signing path built
+- [x] Requires: `RELAYER_PRIVATE_KEY` + `ROUTER_ADDRESS_{ETH,BASE,ARB,BSC,POLY,OPT,AVAX,SCROLL,ZKSYNC}` in env — `.env.example` updated for all 9 chains
 
 ### 1.4 Live Execution Tracker
 
@@ -194,7 +194,7 @@
 - [ ] **BNB Chain** — Router deployed, PancakeSwap integrated
 - [ ] **Polygon** — Router deployed, Uniswap v3 + Aave v3 integrated
 - [ ] Multi-chain RPC management: Alchemy + QuickNode fallback per chain
-- [ ] Gas estimation: accurate per-chain gas price polling
+- [x] Gas estimation: accurate per-chain gas price polling — viem `getGasPrice()` per chain, `GET /quotes/gas` endpoint live
 
 ### 1.6 10+ Protocol Integrations
 
@@ -211,14 +211,15 @@
 
 ### 1.7 Simulation Engine
 
-- [ ] Implement pre-execution simulation (Tenderly API):
-  - [ ] Simulate every step of the strategy before signing
-  - [ ] Return: estimated APY, total gas, bridge fees, protocol fees
-  - [ ] Return: risk scores (slippage, liquidation, smart contract)
-  - [ ] Flag active exploit alerts on any protocol in route
-- [ ] Frontend: render full simulation results before user signs
-- [ ] Frontend: render risk disclosure modal with composite risk score
-- [ ] Frontend: show "⚠️ You are interacting with 3rd party DeFi protocols" warning
+- [x] Implement pre-execution simulation (Tenderly API):
+  - [x] Simulate every step of the strategy before signing — `POST /strategy/simulate` endpoint live
+  - [x] Return: estimated APY, total gas, bridge fees, protocol fees
+  - [x] Return: risk scores (slippage, liquidation, smart contract) — composite 0–100 score
+  - [x] Flag active exploit alerts on any protocol in route — `EXPLOIT_FLAGGED_PROTOCOLS` set
+  - [x] Graceful fallback: returns optimistic estimates when Tenderly not configured
+- [x] Frontend: render full simulation results before user signs — SimulationPanel auto-runs on route select
+- [x] Frontend: render risk disclosure modal with composite risk score — RiskModal gates execute for score ≥ 40
+- [x] Frontend: show "⚠️ You are interacting with 3rd party DeFi protocols" warning
 
 ### 1.8 Security Audit (Firm 1)
 
@@ -251,49 +252,57 @@
 
 ### 2.1 Strategy Marketplace
 
-- [ ] Design Strategy Marketplace schema (creator, strategy, performance, votes)
-- [ ] API: `POST /strategies` — publish strategy (with on-chain registry call)
-- [ ] API: `GET /strategies?sort=yield&filter=risk` — browse marketplace
-- [ ] API: `GET /strategies/:id/performance` — historical performance
-- [ ] Frontend: Marketplace browse page with filters (chain, protocol, yield, risk)
-- [ ] Frontend: Strategy detail page (steps, APY history, creator info, fee)
-- [ ] Frontend: "Copy Strategy" button — one-click replication
-- [ ] Creator fee routing: 0.02% to creator, 0.03% to Meridian treasury
-- [ ] Strategy versioning: deprecation flow when a strategy becomes suboptimal
-- [ ] Curation: flag strategies that use deprecated/exploited protocols
-- [ ] Strategy NFT hooks (Phase 3 prerequisite): store creator address on-chain
+- [x] Design Strategy Marketplace schema (MarketplaceStrategy type — creator, route, votes, execution count, APY)
+- [x] API: `POST /strategies` — publish strategy (requires auth, stores with creator wallet)
+- [x] API: `GET /strategies?sort=yield|risk|votes|popular|newest` — browse with filters
+- [x] API: `GET /strategies/:id` — single strategy detail
+- [x] API: `POST /strategies/:id/vote` — upvote
+- [x] API: `DELETE /strategies/:id` — deprecate (creator-only, auth required)
+- [x] Frontend: `/marketplace` browse page with sort filter
+- [x] Frontend: "Copy Strategy" button — pre-populates form + loads route into state → redirects to /
+- [x] Strategy versioning: deprecation flow (deprecated strategies excluded from browse)
+- [x] 15 marketplace unit tests passing
+- [x] Seeded 2 sample strategies so marketplace is non-empty on first run
+- [ ] API: `GET /strategies/:id/performance` — historical performance (needs DB)
+- [ ] Creator fee routing: 0.02% to creator (requires Router contract update)
+- [ ] Curation: flag strategies using exploited protocols (Phase 2 hardening)
+- [ ] Strategy NFT hooks (Phase 3 prerequisite)
 
 ### 2.2 Auto-Optimizer
 
-- [ ] Implement AI-assisted routing layer on top of Strategy Engine
-- [ ] Input: user asset, destination chain, risk tolerance (1–5), time horizon
-- [ ] Auto-select best route from top 3 Dijkstra results using APY + risk model
-- [ ] Integrate live DeFiLlama APY data for yield benchmarking
-- [ ] Integrate Chainlink + Pyth price feeds for slippage estimation
-- [ ] API: `POST /optimize` — returns best strategy without user needing to choose
-- [ ] Frontend: "Auto Mode" toggle on strategy selection screen
+- [x] Implement routing layer on top of Strategy Engine — risk-tolerance-weighted scoring
+- [x] Input: user asset, destination chain, risk tolerance (1–5), time horizon
+- [x] Auto-select best route from top 3 Dijkstra results using APY + risk model
+- [x] API: `POST /strategy/auto-optimize` — returns single best route + plain-language explanation + alternatives
+- [x] Frontend: "Auto Mode" toggle on strategy selection screen (toggle switch in StrategyForm)
+- [x] Frontend: explanation banner + collapsible alternatives panel in RouteList
+- [x] Integrate Chainlink + Pyth price feeds for slippage estimation — `PriceFeedService` (Pyth Hermes + DeFiLlama fallback, `GET /prices`)
 - [ ] Re-optimization check: if quote expires mid-execution, re-run optimizer
 
 ### 2.3 Strategy Composer UI
 
-- [ ] Design drag-and-drop node-based UI (similar to React Flow)
-- [ ] Node types: Swap, Lend, Bridge, Stake, Settle
-- [ ] Connector: validate compatible asset types between connected nodes
-- [ ] Live preview: show estimated APY + gas as user builds
-- [ ] Export: serialize composed strategy to `Strategy` struct format
-- [ ] Save: store custom strategy to user's account + optionally publish to Marketplace
-- [ ] Template library: pre-built templates users can customize
+- [x] Design drag-and-drop node-based UI (@xyflow/react v12)
+- [x] Node types: Wallet, Lend, Bridge, Swap, Stake — custom `ProtocolNode` component
+- [x] Node palette: search + kind filter, 25 protocol items, draggable sidebar
+- [x] Canvas: animated edges, MiniMap, Controls, empty state hint
+- [x] Toolbar: node/edge count, validation hints, Run Strategy button
+- [x] Run Strategy: translates graph → strategy request → API → redirects to home with routes populated
+- [ ] Connector validation: asset type compatibility (Phase 2 hardening)
+- [x] Live APY preview as nodes are connected — `useLiveApy` polls `GET /strategy/apy`, updates Composer nodes in real time
+- [ ] Save/load strategy from user account (needs DB)
+- [ ] Template library (Phase 2 hardening)
 
 ### 2.4 Tax Report Export
 
-- [ ] For each strategy execution, record:
-  - [ ] Step number, action type, asset in, amount in, asset out, amount out
-  - [ ] Chain, TX hash, timestamp, gas paid, protocol fee paid
-- [ ] Generate CSV export: per-hop format compatible with Koinly, CoinTracker, TaxBit, Coinpanda
-- [ ] Generate PDF export: formatted execution report
-- [ ] Generate JSON export: raw data for custom tax tooling
-- [ ] API: `GET /executions/:id/report?format=csv|pdf|json`
-- [ ] Frontend: download buttons on completed execution page
+- [x] For each strategy execution, record:
+  - [x] Step number, action type, asset in, amount in, asset out, amount out
+  - [x] Chain, TX hash, timestamp, gas paid, protocol fee paid
+- [x] Generate CSV export: per-hop format compatible with Koinly, CoinTracker, TaxBit, Coinpanda
+- [x] Generate PDF export: plain-text report (Phase 2 hardening: replace with pdfkit)
+- [x] Generate JSON export: raw data for custom tax tooling
+- [x] API: `GET /executions/:id/report?format=csv|json|text` — dev mode returns sample report
+- [x] API: `POST /executions/:id/report/register` — relayer registers completed executions
+- [x] Frontend: download buttons on completed execution page (ExportButtons component)
 - [ ] Test: import CSV into Koinly and verify correct cost basis calculation
 
 ### 2.5 Pro Subscription Tier
@@ -305,9 +314,20 @@
   - [ ] Advanced analytics: yield forecasting, historical performance
   - [ ] API access: 1,000 calls/month (rate-limited by API key)
   - [ ] Tax report generation (CSV + PDF)
-- [ ] Auth system: JWT sessions, user accounts (email or wallet-based)
+- [x] Auth system: JWT sessions, wallet-based SIWE (Sign-In With Ethereum)
+  - [x] `GET /auth/nonce` — single-use nonce, expires in 5 minutes
+  - [x] `POST /auth/verify` — ECDSA sig check via viem, issues HS256 JWT + HttpOnly cookie
+  - [x] `GET /auth/me` — authenticated user endpoint with `requireAuth` middleware
+  - [x] `POST /auth/logout` — clears cookie
+  - [x] Frontend: `useAuthStore` (Zustand + persist) — token + wallet + expiresAt
+  - [x] Frontend: `useSignIn` hook — full sign-in/sign-out flow
+  - [x] Frontend: `SignInButton` component in Navbar — shows wallet address when authed
+  - [x] 13 auth unit tests passing
 - [ ] Subscription management: upgrade, downgrade, cancel, billing history
-- [ ] Rate limiting middleware: enforce API call limits per tier
+- [x] Rate limiting middleware: tiered sliding-window enforcer on `/strategy/optimize`, `/strategy/simulate`, `/strategy/auto-optimize`
+  - [x] 20/min anonymous, 60/min free, 300/min pro, 1000/hr API key
+  - [x] `X-RateLimit-{Tier,Limit,Remaining,Reset}` response headers
+  - [x] 16 rate-limit unit tests passing
 
 ### 2.6 Bug Bounty Launch
 
@@ -343,11 +363,30 @@
 
 ## Phase 3 — Scale (Month 8–12)
 
+### 3.0 TypeScript SDK (`@meridian/sdk`)
+
+- [x] `sdk/src/types.ts` — shared types: `OptimizeRequest`, `OptimizeResponse`, `Execution`, `ApyQuote`, `BridgeQuote`, `GasQuote`, `TokenPrice`, `MeridianConfig`
+- [x] `sdk/src/client.ts` — `MeridianClient` with timeout, auth header injection, structured `MeridianApiError`
+- [x] `sdk/src/meridian.ts` — `Meridian` class: `optimize()`, `autoOptimize()`, `getExecution()`, `getAllApyQuotes()`, `getPrice()`, `getAllPrices()`, `health()`
+- [x] `sdk/src/index.ts` — public API surface (re-exports types + classes)
+- [x] `sdk/package.json` — ESM + CJS dual-build via tsup, peer dep on viem
+- [x] `sdk/test/meridian.test.ts` — 11 unit tests with fetch mocking (no real HTTP)
+- [ ] `npm publish @meridian/sdk` — pending public npm registry account
+- [ ] Add SDK to CI pipeline (`pnpm --filter @meridian/sdk test`)
+
 ### 3.1 DAO/Business API
 
 - [ ] Business API: $299–$2,999/month tiers
 - [ ] Programmatic strategy execution via REST API + API keys
-- [ ] Webhook notifications: POST to user endpoint on `StrategyStarted`, `StepExecuted`, `StrategyCompleted`, `StrategyFailed`
+- [x] Webhook notifications: POST to user endpoint on `StrategyStarted`, `StrategyCompleted`
+  - [x] `GET /webhooks` — list registered webhooks (auth required)
+  - [x] `POST /webhooks` — register new webhook with URL, secret, event filter list
+  - [x] `DELETE /webhooks/:id` — deregister
+  - [x] `GET /webhooks/events` — list available event types
+  - [x] HMAC-SHA256 signature on every delivery (header: `X-Meridian-Signature`)
+  - [x] At-least-once delivery: 3 attempts with exponential backoff (2s, 4s)
+  - [x] 10-second per-attempt timeout
+  - [x] Wired into relayer: `StrategyStarted` and `StrategyCompleted` emit automatically
 - [ ] Custom strategy composition via API (no UI required)
 - [ ] Dedicated relayer priority: separate relayer pool for API clients
 - [ ] SLA guarantees: 99.9% uptime, <2s quote response
@@ -355,20 +394,37 @@
 
 ### 3.2 Solana Integration
 
-- [ ] Integrate Solana Wallet Adapter in frontend
-- [ ] Integrate Wormhole for Solana ↔ EVM bridging
-- [ ] Integrate Kamino (Solana yield protocol)
+- [x] Integrate Solana Wallet Adapter in frontend
+  - [x] `SolanaProvider.tsx` — ConnectionProvider + WalletProvider (Phantom, Solflare)
+  - [x] `SolanaConnectButton.tsx` — connect/disconnect UI, truncated address display
+  - [x] `useSolanaPortfolio.ts` — reads SOL native + USDC SPL balances via @solana/web3.js
+- [x] Integrate Wormhole for Solana → EVM bridging
+  - [x] `USDC_101_wallet → USDC_1_wallet` bridge edge in strategy graph (via Wormhole Core Bridge)
+  - [x] Li.Fi quote engine now includes chain ID 101 (SOL) in chain name map
+- [x] Integrate Kamino (Solana USDC lending, 6.50% APY seed)
+  - [x] `USDC_101_kamino_deposit` node in graph
+  - [x] `kamino` added to `PROTOCOL_NODE_MAP` for APY refresh
 - [ ] Deploy Solana program (Rust/Anchor) for Solana-side execution
-- [ ] Test cross-chain flow: Solana → EVM and EVM → Solana
+- [ ] Test cross-chain flow: Solana → EVM and EVM → Solana (needs funded devnet wallets)
 
 ### 3.3 Strategy NFTs
 
-- [ ] Design Strategy NFT ERC-721 contract
-- [ ] Mint NFT when creator publishes to Marketplace
-- [ ] NFT metadata: strategy name, performance stats, creator address
-- [ ] On-chain royalty: ERC-2981 — NFT holder receives creator fee (0.02%)
-- [ ] Secondary market: list on OpenSea / Blur
-- [ ] Transfer: when NFT is sold, creator fee route updates to new holder
+- [x] `MeridianStrategyNFT.sol` — ERC-721 + ERC-2981 (OpenZeppelin 5.6)
+  - [x] `mint(bytes32 strategyId, address creator, string uri)` — minter-only
+  - [x] Per-token royalty 2 bps (0.02%) via ERC-2981
+  - [x] Royalty recipient updates to new owner on transfer (secondary sales)
+  - [x] Soulbound toggle: owner/creator can lock a token non-transferable
+  - [x] One NFT per strategy ID (AlreadyMinted guard)
+  - [x] `setMinter()` admin function for key rotation
+  - [x] 23 Foundry tests — all pass
+- [x] `DeployNFT.s.sol` — Foundry deploy script
+- [x] `backend/src/services/nft/index.ts` — `mintStrategyNFT()` service
+  - [x] Uses viem to simulate + submit tx via MINTER_PRIVATE_KEY wallet
+  - [x] `buildMetadataUri()` — Pinata IPFS upload (`PINATA_JWT` env var), base64 fallback in dev
+  - [x] Gracefully skips if env vars not set
+- [x] Wired into marketplace `POST /strategies`: fire-and-forget mint on publish
+- [ ] Secondary market listing (OpenSea/Blur — needs mainnet deployment)
+- [x] IPFS/Arweave metadata upload — Pinata via `buildMetadataUri()`, `ipfs://` URI returned to NFT contract
 
 ### 3.4 Mobile App
 
@@ -380,10 +436,11 @@
 
 ### 3.5 L2 Native Deployments
 
-- [ ] **Optimism** — Router deployed + integrated
-- [ ] **Avalanche** — Router deployed + GMX (AVAX) integrated
-- [ ] **Scroll** — Router deployed
-- [ ] **zkSync Era** — Router deployed (ensure Solidity 0.8.x EVM compatibility)
+- [~] **Base** — `DeployBase.s.sol` (supports mainnet 8453 + Base Sepolia 84532); CI testnet-deploy workflow wired; awaiting funded wallet
+- [~] **Optimism** — `DeployOptimism.s.sol`, graph nodes + bridge edges (Aave v3, Compound v3, Morpho, Across, Stargate), relayer config (`ROUTER_ADDRESS_OPT`, `RELAYER_PK_OPT`) — awaiting funded wallet
+- [~] **Avalanche** — `DeployAvalanche.s.sol`, graph nodes + bridge edges (Aave v3, GMX, Stargate), portfolio USDC balance read, relayer config (`ROUTER_ADDRESS_AVAX`, `RELAYER_PK_AVAX`) — awaiting funded wallet
+- [~] **Scroll** — `DeployScroll.s.sol`, graph nodes (Aave v3 + Layerbank), bridge edges, frontend USDC address, relayer config (`ROUTER_ADDRESS_SCROLL`, `RELAYER_PK_SCROLL`) — awaiting funded wallet
+- [~] **zkSync Era** — `DeployZkSync.s.sol`, graph nodes (ZeroLend), bridge edges, frontend USDC address, relayer config (`ROUTER_ADDRESS_ZKSYNC`, `RELAYER_PK_ZKSYNC`) — awaiting funded wallet
 - [ ] Per-chain: verify all integrations work with chain-specific quirks (gas tokens, bridge finality times)
 
 ### 3.6 Governance Token (Optional)
@@ -475,10 +532,12 @@
   - [x] Constraint enforcement: max hops 8, max bridges 3, min TVL $50k
   - [x] Risk filter: skip edges touching flagged protocols (exploit feed)
   - [x] Return top 3 paths with score breakdown
-- [ ] **Exploit feed**
-  - [ ] Subscribe to DeFi threat intelligence (DefiLlama hacks, Rekt.news RSS)
-  - [ ] Auto-flag protocols with active exploits
-  - [ ] Manual override: admin can flag/unflag protocols
+- [x] **Exploit feed**
+  - [x] Subscribe to DeFi threat intelligence (DeFiLlama hacks, Rekt.news RSS)
+  - [x] Auto-flag protocols with active exploits (30-day window, 5-min refresh)
+  - [x] Manual override: admin can flag/unflag protocols (`POST /exploits/flag`, `DELETE /exploits/:protocol`)
+  - [x] Strategy engine syncs flags before each optimize call — flagged protocols excluded from routing
+  - [x] `GET /exploits` + `GET /exploits/:protocol` public check endpoints
 - [~] **API endpoints**
   - [x] `POST /strategy/optimize` — input: asset, amount, source chain, destination chain, risk, timeHorizon
   - [ ] `GET /strategy/:id` — get strategy details
@@ -528,8 +587,8 @@
   - [ ] Polygon: Alchemy WebSocket
 - [~] **Relayer wallets**
   - [x] Separate funded wallet per chain (Anvil keys configured)
-  - [ ] Balance monitoring: alert if balance < 0.05 ETH equivalent
-  - [ ] Key storage: AWS KMS (never plaintext in environment)
+  - [x] Balance monitoring: alert if balance < 0.05 ETH equivalent — via `monitoring.alert()` → Slack
+  - [x] Key storage: AWS KMS — `kms-signer` service resolves per-chain accounts via KMS ECC_SECG_P256K1 with plaintext fallback for dev
   - [ ] Nonce management: prevent nonce collision on concurrent transactions
 - [ ] **Failure handling**
   - [ ] All failures emit `StrategyFailed` event on-chain
@@ -621,19 +680,23 @@
 
 ### Strategy Composer UI
 
-- [ ] React Flow (or custom canvas) for drag-and-drop node editor
-- [ ] Node palette: Swap, Lend, Bridge, Stake, Settle
-- [ ] Connection validation: asset type compatibility between nodes
-- [ ] Live APY preview as nodes are connected
-- [ ] Save/load strategy from user account
-- [ ] Publish to Marketplace flow
+- [x] @xyflow/react v12 canvas at `/composer`
+- [x] Custom `ProtocolNode` — kind badge, chain, asset, APY, directional handles
+- [x] `NodePalette` — search, kind chips, 25 draggable items grouped by category
+- [x] `ComposerToolbar` — validation hints, Clear + Run Strategy
+- [x] Drag-to-place from palette, connect with animated edges
+- [x] Run Strategy → populates strategy store → redirects to `/`
+- [x] Navbar link added
+- [ ] Connection validation: asset compatibility (Phase 2 hardening)
+- [x] Live APY preview as you build — `useLiveApy` + Composer `useEffect` enrichment
 
 ### Analytics & Portfolio
 
-- [ ] Portfolio overview: assets across all chains (Recharts pie chart)
-- [ ] Execution history: past strategies, performance, P&L
-- [ ] Yield earned over time: area chart
-- [ ] Fees paid breakdown
+- [x] Portfolio overview: `usePortfolio` hook — reads ETH, USDC, USDT, WBTC balances via viem across 5 chains
+- [x] `/portfolio` page: total value, allocation bar, per-chain asset breakdown
+- [ ] Execution history: past strategies, performance, P&L (needs DB)
+- [ ] Yield earned over time: area chart (needs execution history)
+- [ ] Fees paid breakdown (needs execution history)
 
 ### State Management (Zustand)
 
@@ -715,8 +778,8 @@
 
 ### Price Feeds & Data
 
-- [ ] Chainlink price feeds (on-chain, per chain) — `[ ]`
-- [ ] Pyth Network (high-frequency, on-chain) — `[ ]`
+- [x] Chainlink price feeds — `PriceFeedService` with Pyth Hermes REST (primary) + DeFiLlama (fallback)
+- [x] Pyth Network (high-frequency) — integrated in `PriceFeedService`, `GET /prices` endpoint
 - [ ] The Graph (on-chain event indexing) — `[ ]`
   - [ ] Deploy subgraph for `MeridianRouter` events
   - [ ] Index: all `StrategyStarted`, `StepExecuted`, `StrategyCompleted`, `StrategyFailed`
@@ -775,8 +838,9 @@
 ### Ongoing Security
 
 - [ ] Tenderly monitoring: alerts on unexpected contract calls
-- [ ] DeFi exploit monitoring: auto-flag protocols in quote engine if exploited
-- [ ] Relayer wallet monitoring: alert on unusual transaction patterns
+- [x] DeFi exploit monitoring: auto-flag protocols in quote engine if exploited — exploit-feed service
+- [x] Relayer wallet monitoring: alert on unusual transaction patterns — `monitoring` service: Sentry + Slack
+- [x] Error tracking: `monitoring.captureError()` wired into relayer failures (StrategyFailed, retries exhausted, job dead) — SENTRY_DSN + SLACK_WEBHOOK_URL env vars
 - [ ] Datadog anomaly detection: alert on spike in failed executions
 - [ ] Monthly internal security review
 

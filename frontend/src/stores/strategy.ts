@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Route, StrategyOptimizeRequest } from '@/src/lib/api';
 
+export type OptimizeMode = 'manual' | 'auto';
+
 interface StrategyState {
   // Current strategy form inputs
   sourceAsset: string;
@@ -21,6 +23,11 @@ interface StrategyState {
   isOptimizing: boolean;
   optimizeError: string | null;
 
+  // Auto-optimize
+  mode: OptimizeMode;
+  autoExplanation: string | null;
+  autoAlternatives: Route[];
+
   // Actions
   setSourceAsset: (asset: string) => void;
   setSourceChain: (chain: number) => void;
@@ -31,7 +38,9 @@ interface StrategyState {
   setDestinationWallet: (wallet: string) => void;
   setDestinationVerified: (verified: boolean, signature?: string) => void;
   setRoutes: (routes: Route[], quoteExpiresAt: number) => void;
+  setAutoResult: (route: Route, explanation: string, alternatives: Route[], quoteExpiresAt: number) => void;
   selectRoute: (index: number) => void;
+  setMode: (mode: OptimizeMode) => void;
   setOptimizing: (loading: boolean) => void;
   setOptimizeError: (err: string | null) => void;
   reset: () => void;
@@ -53,6 +62,9 @@ const defaults = {
   quoteExpiresAt: null,
   isOptimizing: false,
   optimizeError: null,
+  mode: 'manual' as OptimizeMode,
+  autoExplanation: null as string | null,
+  autoAlternatives: [] as Route[],
 };
 
 export const useStrategyStore = create<StrategyState>()(
@@ -72,7 +84,10 @@ export const useStrategyStore = create<StrategyState>()(
         set({ destinationVerified, destinationSignature: signature }),
       setRoutes: (routes, quoteExpiresAt) =>
         set({ routes, quoteExpiresAt, selectedRouteIndex: 0, optimizeError: null }),
+      setAutoResult: (route, explanation, alternatives, quoteExpiresAt) =>
+        set({ routes: [route], selectedRouteIndex: 0, autoExplanation: explanation, autoAlternatives: alternatives, quoteExpiresAt, optimizeError: null }),
       selectRoute: (selectedRouteIndex) => set({ selectedRouteIndex }),
+      setMode: (mode) => set({ mode, autoExplanation: null, autoAlternatives: [] }),
       setOptimizing: (isOptimizing) => set({ isOptimizing }),
       setOptimizeError: (optimizeError) => set({ optimizeError }),
       reset: () => set(defaults),
