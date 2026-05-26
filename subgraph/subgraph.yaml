@@ -1,0 +1,295 @@
+specVersion: 1.0.0
+description: Meridian Protocol — indexes MeridianRouter events for on-chain analytics
+repository: https://github.com/ranmdy/meridian
+
+schema:
+  file: ./schema.graphql
+
+dataSources:
+  # ── Ethereum Mainnet ────────────────────────────────────────────────────────
+  - kind: ethereum
+    name: MeridianRouter_Ethereum
+    network: mainnet
+    source:
+      address: "0x0000000000000000000000000000000000000000"   # TODO: replace after mainnet deploy
+      abi: MeridianRouter
+      startBlock: 0   # TODO: replace with deploy block
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Strategy
+        - ExecutionStep
+        - User
+        - ProtocolStats
+        - AssetStats
+        - DailySnapshot
+        - GlobalStats
+      abis:
+        - name: MeridianRouter
+          file: ./abis/MeridianRouter.json
+      eventHandlers:
+        - event: StrategyStarted(indexed bytes32,indexed address,uint256,address,address)
+          handler: handleStrategyStarted
+        - event: StepExecuted(indexed bytes32,uint256,uint8,address,uint256)
+          handler: handleStepExecuted
+        - event: StrategyCompleted(indexed bytes32,indexed address,address,uint256)
+          handler: handleStrategyCompleted
+        - event: StrategyFailed(indexed bytes32,uint256,string)
+          handler: handleStrategyFailed
+        - event: EmergencyExitTriggered(indexed bytes32,indexed address,uint256)
+          handler: handleEmergencyExitTriggered
+      file: ./src/mapping.ts
+
+  # ── Arbitrum ─────────────────────────────────────────────────────────────────
+  - kind: ethereum
+    name: MeridianRouter_Arbitrum
+    network: arbitrum-one
+    source:
+      address: "0x0000000000000000000000000000000000000000"   # TODO: replace after ARB deploy
+      abi: MeridianRouter
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Strategy
+        - ExecutionStep
+        - User
+        - ProtocolStats
+        - AssetStats
+        - DailySnapshot
+        - GlobalStats
+      abis:
+        - name: MeridianRouter
+          file: ./abis/MeridianRouter.json
+      eventHandlers:
+        - event: StrategyStarted(indexed bytes32,indexed address,uint256,address,address)
+          handler: handleStrategyStarted
+        - event: StepExecuted(indexed bytes32,uint256,uint8,address,uint256)
+          handler: handleStepExecuted
+        - event: StrategyCompleted(indexed bytes32,indexed address,address,uint256)
+          handler: handleStrategyCompleted
+        - event: StrategyFailed(indexed bytes32,uint256,string)
+          handler: handleStrategyFailed
+        - event: EmergencyExitTriggered(indexed bytes32,indexed address,uint256)
+          handler: handleEmergencyExitTriggered
+      file: ./src/mapping.ts
+
+  # ── Base ──────────────────────────────────────────────────────────────────────
+  - kind: ethereum
+    name: MeridianRouter_Base
+    network: base
+    source:
+      address: "0x0000000000000000000000000000000000000000"   # TODO: replace after Base deploy
+      abi: MeridianRouter
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Strategy
+        - ExecutionStep
+        - User
+        - ProtocolStats
+        - AssetStats
+        - DailySnapshot
+        - GlobalStats
+      abis:
+        - name: MeridianRouter
+          file: ./abis/MeridianRouter.json
+      eventHandlers:
+        - event: StrategyStarted(indexed bytes32,indexed address,uint256,address,address)
+          handler: handleStrategyStarted
+        - event: StepExecuted(indexed bytes32,uint256,uint8,address,uint256)
+          handler: handleStepExecuted
+        - event: StrategyCompleted(indexed bytes32,indexed address,address,uint256)
+          handler: handleStrategyCompleted
+        - event: StrategyFailed(indexed bytes32,uint256,string)
+          handler: handleStrategyFailed
+        - event: EmergencyExitTriggered(indexed bytes32,indexed address,uint256)
+          handler: handleEmergencyExitTriggered
+      file: ./src/mapping.ts
+
+  # ── Optimism ──────────────────────────────────────────────────────────────────
+  - kind: ethereum
+    name: MeridianRouter_Optimism
+    network: optimism
+    source:
+      address: "0x0000000000000000000000000000000000000000"
+      abi: MeridianRouter
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Strategy
+        - ExecutionStep
+        - User
+        - ProtocolStats
+        - AssetStats
+        - DailySnapshot
+        - GlobalStats
+      abis:
+        - name: MeridianRouter
+          file: ./abis/MeridianRouter.json
+      eventHandlers:
+        - event: StrategyStarted(indexed bytes32,indexed address,uint256,address,address)
+          handler: handleStrategyStarted
+        - event: StepExecuted(indexed bytes32,uint256,uint8,address,uint256)
+          handler: handleStepExecuted
+        - event: StrategyCompleted(indexed bytes32,indexed address,address,uint256)
+          handler: handleStrategyCompleted
+        - event: StrategyFailed(indexed bytes32,uint256,string)
+          handler: handleStrategyFailed
+        - event: EmergencyExitTriggered(indexed bytes32,indexed address,uint256)
+          handler: handleEmergencyExitTriggered
+      file: ./src/mapping.ts
+
+  # ── Polygon ───────────────────────────────────────────────────────────────────
+  - kind: ethereum
+    name: MeridianRouter_Polygon
+    network: matic
+    source:
+      address: "0x0000000000000000000000000000000000000000"
+      abi: MeridianRouter
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Strategy
+        - ExecutionStep
+        - User
+        - ProtocolStats
+        - AssetStats
+        - DailySnapshot
+        - GlobalStats
+      abis:
+        - name: MeridianRouter
+          file: ./abis/MeridianRouter.json
+      eventHandlers:
+        - event: StrategyStarted(indexed bytes32,indexed address,uint256,address,address)
+          handler: handleStrategyStarted
+        - event: StepExecuted(indexed bytes32,uint256,uint8,address,uint256)
+          handler: handleStepExecuted
+        - event: StrategyCompleted(indexed bytes32,indexed address,address,uint256)
+          handler: handleStrategyCompleted
+        - event: StrategyFailed(indexed bytes32,uint256,string)
+          handler: handleStrategyFailed
+        - event: EmergencyExitTriggered(indexed bytes32,indexed address,uint256)
+          handler: handleEmergencyExitTriggered
+      file: ./src/mapping.ts
+
+  # ── BNB Chain ─────────────────────────────────────────────────────────────────
+  - kind: ethereum
+    name: MeridianRouter_BNB
+    network: bsc
+    source:
+      address: "0x0000000000000000000000000000000000000000"
+      abi: MeridianRouter
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Strategy
+        - ExecutionStep
+        - User
+        - ProtocolStats
+        - AssetStats
+        - DailySnapshot
+        - GlobalStats
+      abis:
+        - name: MeridianRouter
+          file: ./abis/MeridianRouter.json
+      eventHandlers:
+        - event: StrategyStarted(indexed bytes32,indexed address,uint256,address,address)
+          handler: handleStrategyStarted
+        - event: StepExecuted(indexed bytes32,uint256,uint8,address,uint256)
+          handler: handleStepExecuted
+        - event: StrategyCompleted(indexed bytes32,indexed address,address,uint256)
+          handler: handleStrategyCompleted
+        - event: StrategyFailed(indexed bytes32,uint256,string)
+          handler: handleStrategyFailed
+        - event: EmergencyExitTriggered(indexed bytes32,indexed address,uint256)
+          handler: handleEmergencyExitTriggered
+      file: ./src/mapping.ts
+
+  # ── Avalanche ─────────────────────────────────────────────────────────────────
+  - kind: ethereum
+    name: MeridianRouter_Avalanche
+    network: avalanche
+    source:
+      address: "0x0000000000000000000000000000000000000000"
+      abi: MeridianRouter
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Strategy
+        - ExecutionStep
+        - User
+        - ProtocolStats
+        - AssetStats
+        - DailySnapshot
+        - GlobalStats
+      abis:
+        - name: MeridianRouter
+          file: ./abis/MeridianRouter.json
+      eventHandlers:
+        - event: StrategyStarted(indexed bytes32,indexed address,uint256,address,address)
+          handler: handleStrategyStarted
+        - event: StepExecuted(indexed bytes32,uint256,uint8,address,uint256)
+          handler: handleStepExecuted
+        - event: StrategyCompleted(indexed bytes32,indexed address,address,uint256)
+          handler: handleStrategyCompleted
+        - event: StrategyFailed(indexed bytes32,uint256,string)
+          handler: handleStrategyFailed
+        - event: EmergencyExitTriggered(indexed bytes32,indexed address,uint256)
+          handler: handleEmergencyExitTriggered
+      file: ./src/mapping.ts
+
+  # ── Scroll ────────────────────────────────────────────────────────────────────
+  - kind: ethereum
+    name: MeridianRouter_Scroll
+    network: scroll
+    source:
+      address: "0x0000000000000000000000000000000000000000"
+      abi: MeridianRouter
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Strategy
+        - ExecutionStep
+        - User
+        - ProtocolStats
+        - AssetStats
+        - DailySnapshot
+        - GlobalStats
+      abis:
+        - name: MeridianRouter
+          file: ./abis/MeridianRouter.json
+      eventHandlers:
+        - event: StrategyStarted(indexed bytes32,indexed address,uint256,address,address)
+          handler: handleStrategyStarted
+        - event: StepExecuted(indexed bytes32,uint256,uint8,address,uint256)
+          handler: handleStepExecuted
+        - event: StrategyCompleted(indexed bytes32,indexed address,address,uint256)
+          handler: handleStrategyCompleted
+        - event: StrategyFailed(indexed bytes32,uint256,string)
+          handler: handleStrategyFailed
+        - event: EmergencyExitTriggered(indexed bytes32,indexed address,uint256)
+          handler: handleEmergencyExitTriggered
+      file: ./src/mapping.ts

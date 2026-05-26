@@ -1,0 +1,137 @@
+"""
+Meridian Protocol — The Graph Subgraph Schema
+Indexes all MeridianRouter events for on-chain analytics.
+"""
+
+# ── Core Entities ───────────────────────────────────────────────────────────
+
+"""
+A single strategy execution initiated by a user.
+Lifecycle: active → completed | failed | exited
+"""
+type Strategy @entity {
+  id: Bytes!                        # strategyId (bytes32 from contract)
+  user: Bytes!                      # original depositor address
+  sourceAsset: Bytes!               # token address (address(0) = native ETH)
+  sourceAmount: BigInt!             # amount deposited (pre-fee)
+  destinationWallet: Bytes!         # verified destination address
+  status: String!                   # "active" | "completed" | "failed" | "exited"
+
+  # Timing
+  startedAt: BigInt!                # block.timestamp of StrategyStarted
+  startedAtBlock: BigInt!           # block number
+  completedAt: BigInt               # block.timestamp of completion (null if active)
+  completedAtBlock: BigInt          # block number
+
+  # Completion data (set on StrategyCompleted)
+  finalAsset: Bytes                 # settled asset (may differ from sourceAsset post-swap)
+  finalAmount: BigInt               # amount received at destination
+
+  # Failure data (set on StrategyFailed)
+  failedStep: BigInt
+  failReason: String
+
+  # Emergency exit data (set on EmergencyExitTriggered)
+  amountReturned: BigInt
+
+  # Steps
+  steps: [ExecutionStep!]! @derivedFrom(field: "strategy")
+  stepCount: Int!                   # total steps seen so far
+
+  # Transaction hashes
+  startTxHash: Bytes!
+  completionTxHash: Bytes
+
+  # Derived relationships
+  userEntity: User!
+}
+
+"""
+A single step within a strategy execution.
+"""
+type ExecutionStep @entity {
+  id: ID!                           # "{strategyId}-{stepIndex}"
+  strategy: Strategy!
+  stepIndex: BigInt!
+  stepType: String!                 # "SWAP" | "LEND" | "BRIDGE" | "STAKE" | "SETTLE"
+  protocol: Bytes!                  # protocol contract address
+  amountOut: BigInt!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+  txHash: Bytes!
+}
+
+"""
+Per-user aggregate statistics.
+"""
+type User @entity {
+  id: Bytes!                        # wallet address
+  totalStrategies: Int!
+  completedStrategies: Int!
+  failedStrategies: Int!
+  exitedStrategies: Int!
+  totalVolumeUsd: BigInt!           # raw token amounts (USD conversion off-chain)
+  strategies: [Strategy!]! @derivedFrom(field: "userEntity")
+  firstSeenAt: BigInt!
+  lastActiveAt: BigInt!
+}
+
+"""
+Per-protocol aggregate statistics — indexed by protocol address.
+"""
+type ProtocolStats @entity {
+  id: Bytes!                        # protocol contract address
+  totalVolume: BigInt!              # sum of amountOut across all steps using this protocol
+  stepCount: Int!                   # total number of times this protocol was used in a step
+  swapCount: Int!
+  lendCount: Int!
+  bridgeCount: Int!
+  stakeCount: Int!
+  settleCount: Int!
+  lastUsedAt: BigInt!
+}
+
+"""
+Per-asset aggregate statistics — indexed by asset address.
+"""
+type AssetStats @entity {
+  id: Bytes!                        # token address
+  totalVolume: BigInt!              # sum of sourceAmount for strategies starting with this asset
+  strategyCount: Int!
+  completedCount: Int!
+  failedCount: Int!
+  lastSeenAt: BigInt!
+}
+
+"""
+Daily aggregate snapshot — one entity per UTC day.
+Enables time-series charts: volume, strategies, unique users.
+"""
+type DailySnapshot @entity {
+  id: ID!                           # "YYYY-MM-DD" (UTC day bucket)
+  timestamp: BigInt!                # Unix timestamp of start of day (midnight UTC)
+  totalVolume: BigInt!              # sum of sourceAmount for all strategies started this day
+  strategiesStarted: Int!
+  strategiesCompleted: Int!
+  strategiesFailed: Int!
+  strategiesExited: Int!
+  uniqueUsers: Int!                 # distinct user addresses seen this day
+  stepsExecuted: Int!
+}
+
+"""
+Protocol-level global counters — singleton (id = "global").
+"""
+type GlobalStats @entity {
+  id: ID!                           # always "global"
+  totalStrategies: BigInt!
+  activeStrategies: BigInt!
+  completedStrategies: BigInt!
+  failedStrategies: BigInt!
+  exitedStrategies: BigInt!
+  totalVolume: BigInt!              # sum of all sourceAmounts ever
+  totalFinalAmount: BigInt!         # sum of all finalAmounts (completed only)
+  uniqueUsers: BigInt!
+  totalSteps: BigInt!
+  lastUpdatedAt: BigInt!
+}

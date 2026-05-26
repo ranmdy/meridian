@@ -202,10 +202,34 @@ jobs:
       - name: Test
         run: pnpm test
 
+  # ─── Subgraph ─────────────────────────────────────────────────────────────────
+  subgraph:
+    name: Subgraph (codegen + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: subgraph
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Codegen (generate AssemblyScript types)
+        run: npm run codegen
+
+      - name: Build (compile WASM mapping)
+        run: npm run build
+
   # ─── Required status check gate ───────────────────────────────────────────────
   all-pass:
     name: All checks passed
-    needs: [contracts, backend, frontend, sdk]
+    needs: [contracts, backend, frontend, sdk, subgraph]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -214,7 +238,8 @@ jobs:
           if [[ "${{ needs.contracts.result }}" != "success" || \
                 "${{ needs.backend.result }}" != "success" || \
                 "${{ needs.frontend.result }}" != "success" || \
-                "${{ needs.sdk.result }}" != "success" ]]; then
+                "${{ needs.sdk.result }}" != "success" || \
+                "${{ needs.subgraph.result }}" != "success" ]]; then
             echo "One or more jobs failed"
             exit 1
           fi

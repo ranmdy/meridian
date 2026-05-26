@@ -1,0 +1,22 @@
+{
+  "name": "@meridian/subgraph",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Graph subgraph — indexes MeridianRouter events across 8 chains",
+  "scripts": {
+    "codegen": "graph codegen",
+    "build": "graph build",
+    "deploy:mainnet": "graph deploy --network mainnet --node https://api.studio.thegraph.com/deploy/ meridian-mainnet",
+    "deploy:arbitrum": "graph deploy --network arbitrum-one --node https://api.studio.thegraph.com/deploy/ meridian-arbitrum",
+    "deploy:base": "graph deploy --network base --node https://api.studio.thegraph.com/deploy/ meridian-base",
+    "deploy:test": "graph deploy --network sepolia --node https://api.studio.thegraph.com/deploy/ meridian-sepolia",
+    "test": "graph test"
+  },
+  "dependencies": {
+    "@graphprotocol/graph-ts": "^0.35.1"
+  },
+  "devDependencies": {
+    "@graphprotocol/graph-cli": "^0.80.0",
+    "matchstick-as": "^0.6.0"
+  }
+}
