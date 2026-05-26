@@ -49,4 +49,10 @@ export const config = {
     project: process.env.TENDERLY_PROJECT ?? '',
     account: process.env.TENDERLY_ACCOUNT ?? '',
   },
+
+  /** The Graph subgraph endpoint — set after deploying subgraph to The Graph Studio */
+  subgraphUrl: process.env.SUBGRAPH_URL ?? '',
+
+  /** How often to poll the subgraph for on-chain metrics (ms) */
+  subgraphPollMs: Number(process.env.SUBGRAPH_POLL_MS ?? 300_000), // 5 minutes
 } as const;

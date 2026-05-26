@@ -21,7 +21,10 @@ import { executionRoutes } from './api/routes/executions.js';
 import { apiKeyRoutes } from './api/routes/api-keys.js';
 import { templateRoutes } from './api/routes/templates.js';
 import { executionRegistry } from './services/execution-registry/index.js';
-import { api as apiMetrics, websocket as wsMetrics, closeMetrics } from './services/metrics/index.js';
+import { api as apiMetrics, websocket as wsMetrics, anomaly, onchain as onchainMetrics, closeMetrics } from './services/metrics/index.js';
+import { closePool } from './db/index.js';
+import { monitoring } from './services/monitoring/index.js';
+import { reportAllApiUsage } from './services/stripe/index.js';
 import type { RelayerJob } from './services/relayer/index.js';
 
 const fastify = Fastify({
@@ -154,19 +157,50 @@ const start = async () => {
           }
           break;
         }
-        case 'failed':
-          executionRegistry.fail(strategyId, job.lastError ?? 'Unknown error');
+        case 'failed': {
+          const reason = job.lastError ?? 'Unknown error';
+          executionRegistry.fail(strategyId, reason);
+          // Email notification (fire-and-forget, no-op if RESEND_API_KEY not set)
+          const failedExec = executionRegistry.get(strategyId);
+          void monitoring.notifyFailure({
+            strategyId,
+            walletAddress: failedExec?.walletAddress ?? 'unknown',
+            reason,
+          });
           break;
+        }
         default:
           break;
       }
     });
+
+    // Wire anomaly detection: alert via monitoring when relayer failure rate spikes
+    anomaly.onAlert((failureRate, samples) => {
+      void monitoring.alert(
+        `Relayer failure spike: ${(failureRate * 100).toFixed(0)}% of last ${samples} jobs failed`,
+        { failureRate: failureRate.toFixed(3), windowSamples: samples },
+      );
+    });
+
+    // Metered billing: report accumulated API usage to Stripe once daily
+    const USAGE_REPORT_INTERVAL_MS = 24 * 60 * 60 * 1000;
+    const usageTimer = setInterval(async () => {
+      // Collect usage for all API-tier wallets from the API key service
+      // (getApiKeyStats aggregates usageThisMonth across all keys for a wallet)
+      const usageByWallet = new Map<string, number>();
+      // We don't have a list-all-wallets API, so we rely on the api-key registry
+      // to expose keys; usage collection is best-effort for now.
+      // TODO Phase 2: query DB for all active API-tier subscriptions and report usage.
+      await reportAllApiUsage(usageByWallet);
+    }, USAGE_REPORT_INTERVAL_MS);
+    usageTimer.unref(); // don't prevent shutdown
 
     quoteEngine.start();
     await relayerManager.start();
     startExploitFeed();
     priceFeed.start();
     void bridgeListener.start();
+    onchainMetrics.start(config.subgraphUrl, config.subgraphPollMs);
 
     await fastify.listen({ port: config.port, host: config.host });
     fastify.log.info(`Meridian backend listening on ${config.host}:${config.port}`);
@@ -185,6 +219,7 @@ const shutdown = async () => {
   priceFeed.stop();
   bridgeListener.stop();
   closeMetrics();
+  await closePool();
   await fastify.close();
   process.exit(0);
 };

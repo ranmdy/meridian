@@ -180,10 +180,177 @@ export const websocket = {
   },
 };
 
+// ─── Anomaly detection ────────────────────────────────────────────────────────
+
+/**
+ * Sliding-window failure rate detector.
+ *
+ * Tracks relayer job outcomes over a configurable window. When the failure
+ * rate exceeds the threshold, it fires an alert callback once (de-duplicated
+ * by a cooldown so the same alert doesn't fire every second).
+ *
+ * Usage (called internally when metrics are emitted):
+ *   anomaly.record('success' | 'failure')
+ */
+
+const ANOMALY_WINDOW_MS   = 5 * 60 * 1000;   // 5-minute rolling window
+const ANOMALY_THRESHOLD   = 0.5;              // alert if >50% of jobs fail
+const ANOMALY_MIN_SAMPLES = 5;               // need at least 5 jobs to evaluate
+const ANOMALY_COOLDOWN_MS = 10 * 60 * 1000; // at most one alert per 10 min
+
+type JobOutcome = { ts: number; success: boolean };
+
+const _window: JobOutcome[] = [];
+let _lastAlertAt = 0;
+type AlertCallback = (failureRate: number, windowSamples: number) => void;
+const _alertCallbacks: AlertCallback[] = [];
+
+export const anomaly = {
+  /** Register a callback that fires when the failure rate spikes. */
+  onAlert(cb: AlertCallback): void {
+    _alertCallbacks.push(cb);
+  },
+
+  /** Record a job outcome and check for anomalies. */
+  record(outcome: 'success' | 'failure'): void {
+    const now = Date.now();
+    _window.push({ ts: now, success: outcome === 'success' });
+
+    // Evict entries older than the window
+    let i = 0;
+    while (i < _window.length && _window[i]!.ts < now - ANOMALY_WINDOW_MS) i++;
+    if (i > 0) _window.splice(0, i);
+
+    if (_window.length < ANOMALY_MIN_SAMPLES) return;
+
+    const failures = _window.filter((e) => !e.success).length;
+    const rate = failures / _window.length;
+
+    if (rate >= ANOMALY_THRESHOLD && now - _lastAlertAt > ANOMALY_COOLDOWN_MS) {
+      _lastAlertAt = now;
+      // Emit a Datadog event (count metric — triggers monitor in DD UI)
+      send(`relayer.anomaly.failure_spike:1|c`, { failure_rate: rate.toFixed(2), samples: _window.length });
+      for (const cb of _alertCallbacks) {
+        try { cb(rate, _window.length); } catch { /* never crash */ }
+      }
+    }
+  },
+
+  /** Expose current window stats (for tests and health checks). */
+  stats(): { samples: number; failureRate: number } {
+    const now = Date.now();
+    const active = _window.filter((e) => e.ts >= now - ANOMALY_WINDOW_MS);
+    const failures = active.filter((e) => !e.success).length;
+    return {
+      samples: active.length,
+      failureRate: active.length === 0 ? 0 : failures / active.length,
+    };
+  },
+
+  /** Reset window (for tests). */
+  reset(): void {
+    _window.splice(0);
+    _lastAlertAt = 0;
+    _alertCallbacks.length = 0;
+  },
+};
+
+// ─── On-chain metrics (via The Graph subgraph) ────────────────────────────────
+
+const GLOBAL_STATS_QUERY = /* graphql */ `
+  query {
+    globalStats(id: "global") {
+      totalStrategies
+      activeStrategies
+      completedStrategies
+      failedStrategies
+      exitedStrategies
+      totalVolume
+      totalFinalAmount
+      uniqueUsers
+      totalSteps
+    }
+  }
+`;
+
+interface SubgraphGlobalStats {
+  totalStrategies: string;
+  activeStrategies: string;
+  completedStrategies: string;
+  failedStrategies: string;
+  exitedStrategies: string;
+  totalVolume: string;
+  totalFinalAmount: string;
+  uniqueUsers: string;
+  totalSteps: string;
+}
+
+/**
+ * On-chain metrics — pulled from The Graph subgraph, pushed to Datadog.
+ * Call `onchain.start()` after the server starts (only runs when SUBGRAPH_URL is set).
+ */
+export const onchain = {
+  _timer: null as ReturnType<typeof setInterval> | null,
+
+  /** Fetch latest GlobalStats from subgraph and emit as Datadog gauges. */
+  async push(subgraphUrl: string): Promise<void> {
+    let res: Response;
+    try {
+      res = await fetch(subgraphUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: GLOBAL_STATS_QUERY }),
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      return; // network error — skip silently, never crash
+    }
+
+    if (!res.ok) return;
+
+    let body: { data?: { globalStats?: SubgraphGlobalStats } };
+    try {
+      body = await res.json() as typeof body;
+    } catch {
+      return;
+    }
+
+    const stats = body?.data?.globalStats;
+    if (!stats) return;
+
+    gauge('onchain.strategies.total',     Number(stats.totalStrategies));
+    gauge('onchain.strategies.active',    Number(stats.activeStrategies));
+    gauge('onchain.strategies.completed', Number(stats.completedStrategies));
+    gauge('onchain.strategies.failed',    Number(stats.failedStrategies));
+    gauge('onchain.strategies.exited',    Number(stats.exitedStrategies));
+    gauge('onchain.volume.total',         Number(BigInt(stats.totalVolume)));
+    gauge('onchain.users.unique',         Number(stats.uniqueUsers));
+    gauge('onchain.steps.total',          Number(stats.totalSteps));
+  },
+
+  /** Start a polling loop. No-op if SUBGRAPH_URL is not configured. */
+  start(subgraphUrl: string, intervalMs: number): void {
+    if (!subgraphUrl) return;
+    this.push(subgraphUrl).catch(() => {});
+    this._timer = setInterval(() => {
+      this.push(subgraphUrl).catch(() => {});
+    }, intervalMs);
+    if (this._timer.unref) this._timer.unref();
+  },
+
+  stop(): void {
+    if (this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
+  },
+};
+
 /**
  * Flush and close the UDP socket (call on graceful shutdown).
  */
 export function closeMetrics(): void {
+  onchain.stop();
   if (_socket) {
     try { _socket.close(); } catch { /* ignore */ }
     _socket = null;
