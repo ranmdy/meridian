@@ -1,11 +1,10 @@
-import type { Metadata } from 'next';
-import { StrategyComposer } from '@/src/components/composer/StrategyComposer';
+import { ComposerPage } from '@/src/components/pages/ComposerPage';
 
-export const metadata: Metadata = {
+export const metadata = {
   title: 'Strategy Composer — Meridian',
   description: 'Drag-and-drop DeFi strategy builder',
 };
 
-export default function ComposerPage() {
-  return <StrategyComposer />;
+export default function Composer() {
+  return <ComposerPage />;
 }

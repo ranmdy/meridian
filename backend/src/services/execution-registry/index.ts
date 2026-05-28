@@ -5,7 +5,10 @@
  * Translates relayer job state into the ExecutionStatus shape consumed by
  * the frontend's ExecutionPoller and GET /strategy/:id/status endpoint.
  *
- * Phase 2: replace in-memory map with PostgreSQL.
+ * Postgres persistence: every state change is fire-and-forget written to the
+ * `executions` and `execution_steps` tables via execution-store.ts. The
+ * in-memory map stays authoritative for live queries so DB latency never
+ * blocks API responses.
  *
  * Lifecycle:
  *   1. POST /strategy/execute → register()
@@ -13,6 +16,12 @@
  *   3. GET /strategy/:id/status → getStatus()
  *   4. GET /user/executions → listByWallet()
  */
+import {
+  insertExecution,
+  insertExecutionSteps,
+  updateExecutionStatus,
+  updateExecutionStep,
+} from '../../db/execution-store.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -111,6 +120,18 @@ class ExecutionRegistry {
     const existing = this.walletIndex.get(wallet) ?? [];
     this.walletIndex.set(wallet, [strategyId, ...existing]);
 
+    // Persist to PostgreSQL (fire-and-forget)
+    void insertExecution({
+      strategyId,
+      walletAddress,
+      sourceAsset: opts.sourceAsset,
+      sourceChain: opts.sourceChain,
+      destinationChain: opts.destinationChain,
+      sourceAmountUsd: opts.sourceAmountUsd,
+      totalSteps: stepCount,
+      startedAt: execution.startedAt,
+    }).then(() => insertExecutionSteps(strategyId, stepCount));
+
     console.log(
       `[ExecutionRegistry] Registered execution strategy=${strategyId} wallet=${wallet} steps=${stepCount}`,
     );
@@ -141,9 +162,17 @@ class ExecutionRegistry {
     if (status === 'in_progress') {
       exec.status = 'in_progress';
       exec.currentStep = stepIndex;
+      void updateExecutionStatus(strategyId, 'in_progress', { currentStep: stepIndex });
     }
 
     exec.elapsedSeconds = Math.floor(Date.now() / 1000) - exec.startedAt;
+
+    // Persist step update (fire-and-forget)
+    void updateExecutionStep(strategyId, stepIndex, status, {
+      txHash: opts?.txHash,
+      chainId: opts?.chain,
+      completedAt: opts?.completedAt,
+    });
   }
 
   /**
@@ -163,6 +192,12 @@ class ExecutionRegistry {
       if (step.status === 'pending') step.status = 'done';
     }
 
+    // Persist (fire-and-forget)
+    void updateExecutionStatus(strategyId, 'completed', {
+      completedAt: exec.completedAt,
+      currentStep: exec.totalSteps,
+    });
+
     console.log(`[ExecutionRegistry] Completed strategy=${strategyId}`);
   }
 
@@ -180,7 +215,18 @@ class ExecutionRegistry {
 
     // Mark the current in_progress step as failed
     const inProgress = exec.steps.find((s) => s.status === 'in_progress');
-    if (inProgress) inProgress.status = 'failed';
+    if (inProgress) {
+      inProgress.status = 'failed';
+      void updateExecutionStep(strategyId, inProgress.index, 'failed', {
+        completedAt: exec.completedAt,
+      });
+    }
+
+    // Persist overall failure (fire-and-forget)
+    void updateExecutionStatus(strategyId, 'failed', {
+      failedAt: exec.completedAt,
+      failureReason: reason,
+    });
 
     console.log(`[ExecutionRegistry] Failed strategy=${strategyId} reason=${reason}`);
   }
@@ -195,6 +241,12 @@ class ExecutionRegistry {
     exec.status = 'emergency_exited';
     exec.completedAt = Math.floor(Date.now() / 1000);
     exec.elapsedSeconds = exec.completedAt - exec.startedAt;
+
+    // Persist (fire-and-forget)
+    void updateExecutionStatus(strategyId, 'emergency_exited', {
+      failedAt: exec.completedAt,
+      failureReason: 'Emergency exit triggered',
+    });
   }
 
   /**

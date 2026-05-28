@@ -1,16 +1,10 @@
-import type { Metadata } from 'next';
-import { BillingPanel } from '@/src/components/billing/BillingPanel';
+import { BillingPage } from '@/src/components/pages/BillingPage';
 
-export const metadata: Metadata = {
+export const metadata = {
   title: 'Billing — Meridian',
   description: 'Manage your Meridian subscription',
 };
 
-export default function BillingPage() {
-  return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-      <h1 className="text-2xl font-bold text-white mb-8">Subscription & Billing</h1>
-      <BillingPanel />
-    </main>
-  );
+export default function Billing() {
+  return <BillingPage />;
 }

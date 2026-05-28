@@ -33,7 +33,7 @@ export function useSignIn(): UseSignInResult {
       setState('verifying');
       const result = await api.auth.verify(nonce, signature, wallet);
 
-      setSession(result.token, result.wallet, result.expiresAt);
+      setSession(result.token, result.wallet, result.expiresAt, undefined, result.refreshExpiresAt);
       setState('success');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-in failed');
