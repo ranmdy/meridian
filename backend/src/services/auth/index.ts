@@ -17,12 +17,29 @@ import { verifyMessage } from 'viem';
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-in-production';
-const JWT_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
-const NONCE_TTL_MS = 5 * 60 * 1000;       // 5 minutes
+const ACCESS_TTL_SECONDS = 24 * 60 * 60;           // 24 hours
+const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60;     // 30 days
+const NONCE_TTL_MS = 5 * 60 * 1000;                // 5 minutes
+
+/** @deprecated use ACCESS_TTL_SECONDS — kept for compatibility with existing callers */
+const JWT_TTL_SECONDS = ACCESS_TTL_SECONDS;
 
 if (process.env.NODE_ENV === 'production' && JWT_SECRET === 'dev-secret-change-in-production') {
   throw new Error('JWT_SECRET must be set in production');
 }
+
+// ─── Refresh token revocation store ───────────────────────────────────────────
+// Maps refresh-token jti (random id embedded in payload) → expiry epoch.
+// On logout or rotation, the old jti is added here and rejected until expiry.
+const revokedRefreshJtis = new Map<string, number>();
+
+// Purge expired revocations every 10 minutes
+setInterval(() => {
+  const now = Math.floor(Date.now() / 1000);
+  for (const [jti, exp] of revokedRefreshJtis) {
+    if (exp < now) revokedRefreshJtis.delete(jti);
+  }
+}, 10 * 60_000).unref();
 
 // ─── In-memory nonce store (Phase 2: move to Redis) ───────────────────────────
 
@@ -63,6 +80,14 @@ export interface JwtPayload {
   exp: number;
 }
 
+export interface RefreshTokenPayload {
+  sub: string;   // wallet address (lowercase)
+  jti: string;   // unique token id (for revocation)
+  type: 'refresh';
+  iat: number;
+  exp: number;
+}
+
 export function issueJwt(wallet: string): string {
   const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const now = Math.floor(Date.now() / 1000);
@@ -71,6 +96,21 @@ export function issueJwt(wallet: string): string {
     iat: now,
     exp: now + JWT_TTL_SECONDS,
   } satisfies JwtPayload));
+  const sig = sign(header, payload);
+  return `${header}.${payload}.${sig}`;
+}
+
+export function issueRefreshToken(wallet: string): string {
+  const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const now = Math.floor(Date.now() / 1000);
+  const jti = randomBytes(16).toString('hex');
+  const payload = b64url(JSON.stringify({
+    sub: wallet.toLowerCase(),
+    jti,
+    type: 'refresh',
+    iat: now,
+    exp: now + REFRESH_TTL_SECONDS,
+  } satisfies RefreshTokenPayload));
   const sig = sign(header, payload);
   return `${header}.${payload}.${sig}`;
 }
@@ -84,6 +124,40 @@ export function verifyJwt(token: string): JwtPayload {
   const decoded = JSON.parse(fromB64url(payload)) as JwtPayload;
   if (decoded.exp < Math.floor(Date.now() / 1000)) throw new Error('JWT expired');
   return decoded;
+}
+
+/**
+ * Verify a refresh token and return its payload.
+ * Throws if invalid, expired, or revoked.
+ */
+export function verifyRefreshToken(token: string): RefreshTokenPayload {
+  const parts = token.split('.');
+  if (parts.length !== 3) throw new Error('Invalid refresh token format');
+  const [header, payload, sig] = parts;
+  const expected = sign(header, payload);
+  if (sig !== expected) throw new Error('Invalid refresh token signature');
+  const decoded = JSON.parse(fromB64url(payload)) as RefreshTokenPayload;
+  if (decoded.type !== 'refresh') throw new Error('Not a refresh token');
+  if (decoded.exp < Math.floor(Date.now() / 1000)) throw new Error('Refresh token expired');
+  if (revokedRefreshJtis.has(decoded.jti)) throw new Error('Refresh token revoked');
+  return decoded;
+}
+
+/**
+ * Revoke a refresh token by its jti. Called on logout or token rotation.
+ */
+export function revokeRefreshToken(token: string): void {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return;
+    const [, payload] = parts;
+    const decoded = JSON.parse(fromB64url(payload)) as RefreshTokenPayload;
+    if (decoded.jti && decoded.exp) {
+      revokedRefreshJtis.set(decoded.jti, decoded.exp);
+    }
+  } catch {
+    // Silently ignore malformed tokens on revoke
+  }
 }
 
 // ─── Nonce management ─────────────────────────────────────────────────────────
@@ -106,8 +180,10 @@ export function buildSignMessage(nonce: string, expiresAt: number): string {
 
 export interface AuthResult {
   token: string;
+  refreshToken: string;
   wallet: string;
   expiresAt: number;
+  refreshExpiresAt: number;
 }
 
 export async function verifySiweSignature(
@@ -136,11 +212,14 @@ export async function verifySiweSignature(
   nonceStore.delete(nonce);
 
   const token = issueJwt(wallet);
+  const refreshToken = issueRefreshToken(wallet);
   const now = Math.floor(Date.now() / 1000);
 
   return {
     token,
+    refreshToken,
     wallet: wallet.toLowerCase(),
-    expiresAt: now + JWT_TTL_SECONDS,
+    expiresAt: now + ACCESS_TTL_SECONDS,
+    refreshExpiresAt: now + REFRESH_TTL_SECONDS,
   };
 }

@@ -83,6 +83,17 @@ export function buildSeedGraph(): ProtocolGraph {
   g.addNode(lendNode('ETH',  'mETH',  1, 'morpho', 400_000_000, 240));
   g.addNode(lendNode('WBTC', 'mWBTC', 1, 'morpho', 200_000_000, 160));
 
+  // Pendle — Ethereum (PT-stETH and PT-eETH — highest TVL Pendle markets)
+  g.addNode({ id: 'ETH_1_pendle_steth', asset: 'PT-stETH', chain: 1, protocol: 'pendle', action: 'STAKE', tvlUsd: 900_000_000, apyBps: 420, exploitFlagged: false });
+  g.addNode({ id: 'ETH_1_pendle_eeth',  asset: 'PT-eETH',  chain: 1, protocol: 'pendle', action: 'STAKE', tvlUsd: 700_000_000, apyBps: 380, exploitFlagged: false });
+
+  // Convex Finance — Ethereum (boosted CRV + CVX rewards on top of Curve pools)
+  g.addNode({ id: 'USDC_1_convex_3pool', asset: 'cvx3CRV', chain: 1, protocol: 'convex', action: 'STAKE', tvlUsd: 1_200_000_000, apyBps: 620, exploitFlagged: false });
+  g.addNode({ id: 'ETH_1_convex_steth',  asset: 'cvxsteCRV', chain: 1, protocol: 'convex', action: 'STAKE', tvlUsd: 2_000_000_000, apyBps: 510, exploitFlagged: false });
+
+  // Curve 3pool — Ethereum (stablecoin swap node: USDC ↔ USDT ↔ DAI)
+  g.addNode({ id: 'USDC_1_curve_3pool', asset: 'USDC', chain: 1, protocol: 'curve', action: 'SWAP', tvlUsd: 400_000_000, apyBps: 0, exploitFlagged: false });
+
   // Uniswap v3 — Ethereum (swap node)
   g.addNode({ id: 'USDC_1_uniswap', asset: 'USDC', chain: 1, protocol: 'uniswap_v3', action: 'SWAP', tvlUsd: 500_000_000, apyBps: 0, exploitFlagged: false });
 
@@ -96,6 +107,9 @@ export function buildSeedGraph(): ProtocolGraph {
   g.addNode(lendNode('USDC', 'cUSDCv3', 8453, 'compound_v3', 80_000_000, 450));
   g.addNode(lendNode('USDC', 'mUSDC', 8453, 'morpho', 60_000_000, 580));
 
+  // Aerodrome — Base (ve(3,3) DEX, the largest liquidity hub on Base)
+  g.addNode({ id: 'ETH_8453_aerodrome', asset: 'USDC', chain: 8453, protocol: 'aerodrome', action: 'SWAP', tvlUsd: 500_000_000, apyBps: 0, exploitFlagged: false });
+
   // ── Arbitrum One (chain 42161) ───────────────────────────────────────────────
 
   g.addNode(wallet('ETH',  42161));
@@ -106,8 +120,18 @@ export function buildSeedGraph(): ProtocolGraph {
   g.addNode(lendNode('ETH',  'aETH',  42161, 'aave_v3', 300_000_000, 200));
   g.addNode(lendNode('USDC', 'cUSDCv3', 42161, 'compound_v3', 150_000_000, 430));
 
+  // Camelot — Arbitrum (native AMM with GRAIL/xGRAIL tokenomics)
+  g.addNode({ id: 'ETH_42161_camelot', asset: 'USDC', chain: 42161, protocol: 'camelot', action: 'SWAP', tvlUsd: 80_000_000, apyBps: 0, exploitFlagged: false });
+
   // GMX — Arbitrum
   g.addNode({ id: 'USDC_42161_gmx', asset: 'GLP', chain: 42161, protocol: 'gmx', action: 'STAKE', tvlUsd: 400_000_000, apyBps: 840, exploitFlagged: false });
+
+  // Curve tricrypto — Arbitrum (USDC ↔ USDT stablecoin swap node)
+  g.addNode({ id: 'USDC_42161_curve', asset: 'USDC', chain: 42161, protocol: 'curve', action: 'SWAP', tvlUsd: 150_000_000, apyBps: 0, exploitFlagged: false });
+
+  // Pendle — Arbitrum (PT-weETH and PT-USDC markets)
+  g.addNode({ id: 'ETH_42161_pendle_weeth',  asset: 'PT-weETH',  chain: 42161, protocol: 'pendle', action: 'STAKE', tvlUsd: 600_000_000, apyBps: 450, exploitFlagged: false });
+  g.addNode({ id: 'USDC_42161_pendle_usdc',  asset: 'PT-USDC',   chain: 42161, protocol: 'pendle', action: 'STAKE', tvlUsd: 300_000_000, apyBps: 860, exploitFlagged: false });
 
   // ── Polygon (chain 137) ──────────────────────────────────────────────────────
 
@@ -122,6 +146,9 @@ export function buildSeedGraph(): ProtocolGraph {
 
   g.addNode(wallet('ETH',  56)); // WETH on BNB
   g.addNode(wallet('USDC', 56));
+
+  // PancakeSwap v3 — BNB Chain
+  g.addNode({ id: 'ETH_56_pancakeswap', asset: 'USDC', chain: 56, protocol: 'pancakeswap', action: 'SWAP', tvlUsd: 300_000_000, apyBps: 0, exploitFlagged: false });
 
   // ── Optimism (chain 10) ──────────────────────────────────────────────────────
 
@@ -150,6 +177,11 @@ export function buildSeedGraph(): ProtocolGraph {
   // EDGES
   // ─────────────────────────────────────────────────────────────────────────────
 
+  const CURVE_3POOL    = '0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7';
+  const CONVEX_BOOSTER = '0xF403C135812408BFbE8713b5A23a04b3D48AAE31';
+  const AERODROME      = '0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43'; // Aerodrome Router Base
+  const CAMELOT        = '0xc873fEcbd354f5A56E00E710B90EF4201db2448d'; // Camelot Router ARB
+  const PANCAKESWAP_V3 = '0x13f4EA83D0bd40E75C8222255bc855a974568Dd4'; // PancakeSwap V3 SmartRouter BNB
   const AAVE_ETH       = '0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2';
   const AAVE_BASE      = '0xA238Dd8sAE912a1A6b1Bb9Dc22c9Ef5B7b2d9dA'; // placeholder until deployed
   const AAVE_ARB       = '0x794a61358D6845594F94dc1DB02A252b5b4814aD';
@@ -161,6 +193,8 @@ export function buildSeedGraph(): ProtocolGraph {
   const STARGATE       = '0x8731d54E9D02c286767d56ac03e8037C07e01e98';
   const ACROSS         = '0x5c7BCd6E7De5423a257D81B442095A1a6ced35C5'; // Spoke Pool ETH
   const GMX_MANAGER    = '0xB95DB5B167D75e6d04227CfFFA61069348d271F5';
+  // Pendle Router v4 (same address on ETH and ARB)
+  const PENDLE_ROUTER  = '0x888888888889758F76e7103c6CbF23ABbF58F946';
 
   // ── Ethereum: wallet → lend ─────────────────────────────────────────────────
 
@@ -173,6 +207,18 @@ export function buildSeedGraph(): ProtocolGraph {
   g.addEdge({ from: 'USDC_1_wallet', to: 'USDC_1_morpho_deposit',       stepType: 'LEND', protocol: 'morpho',      protocolAddress: MORPHO_ETH,      gasEstimateUsd: 0.75, bridgeFeeUsd: 0, slippageBps: 0,  isBridge: false });
   g.addEdge({ from: 'ETH_1_wallet',  to: 'ETH_1_morpho_deposit',        stepType: 'LEND', protocol: 'morpho',      protocolAddress: MORPHO_ETH,      gasEstimateUsd: 0.75, bridgeFeeUsd: 0, slippageBps: 0,  isBridge: false });
   g.addEdge({ from: 'WBTC_1_wallet', to: 'WBTC_1_morpho_deposit',       stepType: 'LEND', protocol: 'morpho',      protocolAddress: MORPHO_ETH,      gasEstimateUsd: 0.75, bridgeFeeUsd: 0, slippageBps: 0,  isBridge: false });
+
+  // Pendle — Ethereum (ETH → PT-stETH / PT-eETH fixed-yield positions)
+  g.addEdge({ from: 'ETH_1_wallet', to: 'ETH_1_pendle_steth', stepType: 'STAKE', protocol: 'pendle', protocolAddress: PENDLE_ROUTER, gasEstimateUsd: 1.20, bridgeFeeUsd: 0, slippageBps: 50, isBridge: false });
+  g.addEdge({ from: 'ETH_1_wallet', to: 'ETH_1_pendle_eeth',  stepType: 'STAKE', protocol: 'pendle', protocolAddress: PENDLE_ROUTER, gasEstimateUsd: 1.20, bridgeFeeUsd: 0, slippageBps: 50, isBridge: false });
+
+  // Curve 3pool — Ethereum (USDC ↔ USDT stablecoin swap, near-zero slippage)
+  g.addEdge({ from: 'USDC_1_wallet', to: 'USDC_1_curve_3pool', stepType: 'SWAP', protocol: 'curve', protocolAddress: CURVE_3POOL, gasEstimateUsd: 0.55, bridgeFeeUsd: 0, slippageBps: 2, isBridge: false });
+  g.addEdge({ from: 'USDT_1_wallet', to: 'USDC_1_curve_3pool', stepType: 'SWAP', protocol: 'curve', protocolAddress: CURVE_3POOL, gasEstimateUsd: 0.55, bridgeFeeUsd: 0, slippageBps: 2, isBridge: false });
+
+  // Convex Finance — Ethereum (deposit LP tokens for boosted yield)
+  g.addEdge({ from: 'USDC_1_wallet', to: 'USDC_1_convex_3pool', stepType: 'STAKE', protocol: 'convex', protocolAddress: CONVEX_BOOSTER, gasEstimateUsd: 0.90, bridgeFeeUsd: 0, slippageBps: 5, isBridge: false });
+  g.addEdge({ from: 'ETH_1_wallet',  to: 'ETH_1_convex_steth',  stepType: 'STAKE', protocol: 'convex', protocolAddress: CONVEX_BOOSTER, gasEstimateUsd: 1.00, bridgeFeeUsd: 0, slippageBps: 20, isBridge: false });
 
   // Aave borrow-to-wallet (exit) edges
   g.addEdge({ from: 'ETH_1_aave_v3_deposit',  to: 'USDC_1_wallet',  stepType: 'LEND', protocol: 'aave_v3', protocolAddress: AAVE_ETH, gasEstimateUsd: 0.60, bridgeFeeUsd: 0, slippageBps: 0, isBridge: false });
@@ -205,12 +251,22 @@ export function buildSeedGraph(): ProtocolGraph {
   g.addEdge({ from: 'USDC_8453_wallet', to: 'USDC_8453_compound_v3_deposit', stepType: 'LEND', protocol: 'compound_v3', protocolAddress: COMPOUND_V3_BASE, gasEstimateUsd: 0.04, bridgeFeeUsd: 0, slippageBps: 0, isBridge: false });
   g.addEdge({ from: 'USDC_8453_wallet', to: 'USDC_8453_morpho_deposit',      stepType: 'LEND', protocol: 'morpho',      protocolAddress: MORPHO_ETH,       gasEstimateUsd: 0.05, bridgeFeeUsd: 0, slippageBps: 0, isBridge: false });
 
+  // Aerodrome — Base (ETH → USDC via Aerodrome VAMM)
+  g.addEdge({ from: 'ETH_8453_wallet', to: 'ETH_8453_aerodrome', stepType: 'SWAP', protocol: 'aerodrome', protocolAddress: AERODROME, gasEstimateUsd: 0.04, bridgeFeeUsd: 0, slippageBps: 20, isBridge: false });
+
   // ── Arbitrum: wallet → lend ─────────────────────────────────────────────────
 
   g.addEdge({ from: 'USDC_42161_wallet', to: 'USDC_42161_aave_v3_deposit',    stepType: 'LEND', protocol: 'aave_v3',     protocolAddress: AAVE_ARB,        gasEstimateUsd: 0.10, bridgeFeeUsd: 0, slippageBps: 0, isBridge: false });
   g.addEdge({ from: 'ETH_42161_wallet',  to: 'ETH_42161_aave_v3_deposit',     stepType: 'LEND', protocol: 'aave_v3',     protocolAddress: AAVE_ARB,        gasEstimateUsd: 0.10, bridgeFeeUsd: 0, slippageBps: 0, isBridge: false });
   g.addEdge({ from: 'USDC_42161_wallet', to: 'USDC_42161_compound_v3_deposit', stepType: 'LEND', protocol: 'compound_v3', protocolAddress: COMPOUND_V3_ARB, gasEstimateUsd: 0.08, bridgeFeeUsd: 0, slippageBps: 0, isBridge: false });
-  g.addEdge({ from: 'USDC_42161_wallet', to: 'USDC_42161_gmx',                 stepType: 'STAKE', protocol: 'gmx',        protocolAddress: GMX_MANAGER,     gasEstimateUsd: 0.15, bridgeFeeUsd: 0, slippageBps: 30, isBridge: false });
+  g.addEdge({ from: 'USDC_42161_wallet', to: 'USDC_42161_gmx',      stepType: 'STAKE', protocol: 'gmx',     protocolAddress: GMX_MANAGER, gasEstimateUsd: 0.15, bridgeFeeUsd: 0, slippageBps: 30, isBridge: false });
+  g.addEdge({ from: 'ETH_42161_wallet',  to: 'ETH_42161_camelot',   stepType: 'SWAP',  protocol: 'camelot', protocolAddress: CAMELOT,     gasEstimateUsd: 0.06, bridgeFeeUsd: 0, slippageBps: 25, isBridge: false });
+  g.addEdge({ from: 'USDC_42161_wallet', to: 'USDC_42161_curve', stepType: 'SWAP',  protocol: 'curve', protocolAddress: '0x7f90122BF0700F9E7e1F688fe926940E8839F353', gasEstimateUsd: 0.04, bridgeFeeUsd: 0, slippageBps: 2, isBridge: false });
+  g.addEdge({ from: 'USDT_42161_wallet', to: 'USDC_42161_curve', stepType: 'SWAP',  protocol: 'curve', protocolAddress: '0x7f90122BF0700F9E7e1F688fe926940E8839F353', gasEstimateUsd: 0.04, bridgeFeeUsd: 0, slippageBps: 2, isBridge: false });
+
+  // Pendle — Arbitrum (ETH → PT-weETH, USDC → PT-USDC fixed-yield)
+  g.addEdge({ from: 'ETH_42161_wallet',  to: 'ETH_42161_pendle_weeth', stepType: 'STAKE', protocol: 'pendle', protocolAddress: PENDLE_ROUTER, gasEstimateUsd: 0.12, bridgeFeeUsd: 0, slippageBps: 50, isBridge: false });
+  g.addEdge({ from: 'USDC_42161_wallet', to: 'USDC_42161_pendle_usdc', stepType: 'STAKE', protocol: 'pendle', protocolAddress: PENDLE_ROUTER, gasEstimateUsd: 0.10, bridgeFeeUsd: 0, slippageBps: 30, isBridge: false });
 
   // ── Polygon: wallet → lend ──────────────────────────────────────────────────
 
@@ -250,6 +306,12 @@ export function buildSeedGraph(): ProtocolGraph {
   g.addEdge({ from: 'USDC_43114_wallet', to: 'USDC_43114_aave_v3_deposit', stepType: 'LEND', protocol: 'aave_v3', protocolAddress: AAVE_AVAX, gasEstimateUsd: 0.08, bridgeFeeUsd: 0, slippageBps: 0, isBridge: false });
   g.addEdge({ from: 'ETH_43114_wallet',  to: 'ETH_43114_aave_v3_deposit',  stepType: 'LEND', protocol: 'aave_v3', protocolAddress: AAVE_AVAX, gasEstimateUsd: 0.08, bridgeFeeUsd: 0, slippageBps: 0, isBridge: false });
   g.addEdge({ from: 'USDC_43114_wallet', to: 'USDC_43114_gmx',             stepType: 'STAKE', protocol: 'gmx',    protocolAddress: GMX_AVAX,  gasEstimateUsd: 0.12, bridgeFeeUsd: 0, slippageBps: 30, isBridge: false });
+
+  // ── BNB Chain: wallet → PancakeSwap ─────────────────────────────────────────
+
+  g.addEdge({ from: 'ETH_56_wallet', to: 'ETH_56_pancakeswap', stepType: 'SWAP', protocol: 'pancakeswap', protocolAddress: PANCAKESWAP_V3, gasEstimateUsd: 0.10, bridgeFeeUsd: 0, slippageBps: 25, isBridge: false });
+  // Bridge BNB Chain in from Ethereum
+  g.addEdge({ from: 'USDC_1_wallet', to: 'USDC_56_wallet', stepType: 'BRIDGE', protocol: 'stargate', protocolAddress: STARGATE, gasEstimateUsd: 1.10, bridgeFeeUsd: 1.30, slippageBps: 5, isBridge: true });
 
   // ── Solana (chain 101) ───────────────────────────────────────────────────────
   // Chain ID 101 follows the Phantom/Solana ecosystem convention.

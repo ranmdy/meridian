@@ -286,17 +286,47 @@ export function handleStripeWebhook(
       return { handled: true, event: event.type };
     }
 
+    // invoice.paid: canonical renewal signal — update period end and record payment
+    case 'invoice.paid':
     case 'invoice.payment_succeeded': {
-      const invoice = event.data.object;
-      const wallet  = (invoice['metadata'] as Record<string, string> | undefined)?.['walletAddress'];
-      if (wallet) {
-        billingHistory.push({
-          id: String(invoice['id'] ?? Date.now()),
-          walletAddress: wallet.toLowerCase(),
-          type: 'payment_succeeded',
-          amountUsd: Number(invoice['amount_paid'] ?? 0) / 100,
-          timestamp: Date.now(),
-        });
+      const invoice  = event.data.object;
+      const subId    = String(invoice['subscription'] ?? '');
+      const periodEnd = invoice['lines']
+        ? (() => {
+            const lines = (invoice['lines'] as { data?: Array<{ period?: { end?: number } }> } | undefined)?.data;
+            return lines?.[0]?.period?.end;
+          })()
+        : undefined;
+
+      // Refresh currentPeriodEnd on the subscription record
+      if (subId) {
+        for (const [wallet, sub] of subscriptions.entries()) {
+          if (sub.stripeSubscriptionId === subId) {
+            if (periodEnd) sub.currentPeriodEnd = periodEnd;
+            sub.status = 'active'; // clear any past_due state
+            subscriptions.set(wallet, sub);
+            billingHistory.push({
+              id: String(invoice['id'] ?? Date.now()),
+              walletAddress: wallet,
+              type: 'payment_succeeded',
+              amountUsd: Number(invoice['amount_paid'] ?? 0) / 100,
+              timestamp: Date.now(),
+            });
+            break;
+          }
+        }
+      } else {
+        // Fallback: use wallet from metadata (initial payment path)
+        const wallet = (invoice['metadata'] as Record<string, string> | undefined)?.['walletAddress'];
+        if (wallet) {
+          billingHistory.push({
+            id: String(invoice['id'] ?? Date.now()),
+            walletAddress: wallet.toLowerCase(),
+            type: 'payment_succeeded',
+            amountUsd: Number(invoice['amount_paid'] ?? 0) / 100,
+            timestamp: Date.now(),
+          });
+        }
       }
       return { handled: true, event: event.type };
     }
@@ -342,7 +372,100 @@ export function handleStripeWebhook(
       return { handled: true, event: event.type };
     }
 
+    // usage_record.summary.applied: Stripe confirms metered usage accepted
+    case 'usage_record.summary.applied':
+      return { handled: true, event: event.type };
+
     default:
       return { handled: false, event: event.type };
   }
+}
+
+// ─── Metered billing ───────────────────────────────────────────────────────────
+
+/**
+ * Report API usage to Stripe for metered billing.
+ *
+ * Called periodically (e.g., at end of billing period or on-demand) for API-tier
+ * subscriptions. Uses the Stripe Billing Meter Events API (POST /v1/meter_events)
+ * if STRIPE_API_METER_EVENT is set, otherwise falls back to legacy usage records
+ * via the subscription item ID stored on the subscription.
+ *
+ * Env vars:
+ *   STRIPE_API_METER_EVENT — meter event name (e.g. "api_requests"), used with new meters API
+ *   STRIPE_SECRET_KEY      — required for live mode
+ *
+ * @param walletAddress  wallet whose usage to report
+ * @param quantity       number of API calls to report
+ * @returns true if usage was reported successfully, false if Stripe is not configured
+ */
+export async function reportApiUsage(
+  walletAddress: string,
+  quantity: number,
+): Promise<boolean> {
+  if (!process.env.STRIPE_SECRET_KEY || quantity <= 0) return false;
+
+  const sub = subscriptions.get(walletAddress.toLowerCase());
+  if (!sub || sub.tier !== 'api') return false;
+
+  const meterEvent = process.env.STRIPE_API_METER_EVENT;
+
+  try {
+    if (meterEvent) {
+      // New Stripe Billing Meters API (2024+)
+      const body = new URLSearchParams({
+        event_name: meterEvent,
+        payload: JSON.stringify({
+          value: String(quantity),
+          stripe_customer_id: sub.stripeCustomerId ?? '',
+        }),
+        timestamp: String(Math.floor(Date.now() / 1000)),
+      });
+
+      const res = await fetch('https://api.stripe.com/v1/billing/meter_events', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: body.toString(),
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        console.error(`[Stripe] Meter event report failed for ${walletAddress}:`, err);
+        return false;
+      }
+
+      console.log(`[Stripe] Reported ${quantity} API calls for ${walletAddress} via meter event`);
+    } else if (sub.stripeSubscriptionId) {
+      // Legacy usage records API — requires subscription item ID
+      // We store the raw sub ID; caller must resolve the subscription item ID.
+      // Skip if not available (requires explicit STRIPE_API_METER_EVENT for full support).
+      console.warn(
+        `[Stripe] STRIPE_API_METER_EVENT not set — usage records skipped for ${walletAddress}. Set this env var to enable metered billing.`,
+      );
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error(`[Stripe] reportApiUsage error for ${walletAddress}:`, (err as Error).message);
+    return false;
+  }
+}
+
+/**
+ * Report accumulated API usage for ALL active API-tier subscriptions.
+ * Call this at the end of each billing period (e.g., via a cron job).
+ *
+ * @param usageByWallet  map of wallet address → call count
+ */
+export async function reportAllApiUsage(usageByWallet: Map<string, number>): Promise<void> {
+  const promises: Promise<boolean>[] = [];
+  for (const [wallet, count] of usageByWallet) {
+    if (count > 0) promises.push(reportApiUsage(wallet, count));
+  }
+  await Promise.allSettled(promises);
 }

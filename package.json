@@ -27,5 +27,16 @@
   "engines": {
     "node": ">=20.0.0",
     "pnpm": ">=9.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@stellar/stellar-sdk",
+      "blake-hash",
+      "esbuild",
+      "protobufjs",
+      "tiny-secp256k1",
+      "usb",
+      "utf-8-validate"
+    ]
   }
 }

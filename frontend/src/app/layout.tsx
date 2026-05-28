@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { Providers } from '@/src/components/layout/Providers';
+import { Navbar } from '@/src/components/layout/Navbar';
+import { Footer } from '@/src/components/layout/Footer';
 
 export const metadata: Metadata = {
   title: 'Meridian — Cross-Chain DeFi Strategy Router',
@@ -10,9 +12,20 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      <body className="min-h-screen bg-gray-950 text-gray-100 font-sans antialiased">
-        <Providers>{children}</Providers>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('mrd-theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();`,
+          }}
+        />
+      </head>
+      <body style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <Providers>
+          <Navbar />
+          <div style={{ flex: 1 }}>{children}</div>
+          <Footer />
+        </Providers>
       </body>
     </html>
   );

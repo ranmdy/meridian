@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { executionRegistry } from '../../services/execution-registry/index.js';
 import { incrementExecutionCount } from '../../services/marketplace/index.js';
+import { listExecutionsByWallet } from '../../db/execution-store.js';
+import { getSubscription } from '../../services/stripe/index.js';
 import type { RelayerManager } from '../../services/relayer/index.js';
 
 const ExecuteSchema = z.object({
@@ -59,6 +61,13 @@ export async function executionRoutes(
       stepCount,
     });
 
+    // Determine relayer priority from subscription tier
+    // Pro/API tier: 10 (processed first), free: 0
+    const sub = getSubscription(walletAddress);
+    const relayerPriority = sub && (sub.tier === 'pro' || sub.tier === 'api') && sub.status === 'active'
+      ? 10
+      : 0;
+
     // Submit initial monitor job to relayer so it watches the bridge tx
     if (initialTxHash) {
       opts.relayerManager.submitMonitorJob(
@@ -68,6 +77,7 @@ export async function executionRoutes(
         sourceChain,
         destinationChain,
         quoteExpiresAt,
+        relayerPriority,
       );
     }
 
@@ -99,8 +109,16 @@ export async function executionRoutes(
         return reply.status(400).send({ error: 'wallet query param is required (checksummed address)' });
       }
 
-      const executions = executionRegistry.listByWallet(wallet, limit ? parseInt(limit, 10) : 50);
-      return reply.send({ executions, total: executions.length });
+      const cap = limit ? parseInt(limit, 10) : 50;
+
+      // Prefer DB (survives restarts); fall back to in-memory registry
+      const dbRows = await listExecutionsByWallet(wallet, cap);
+      if (dbRows !== null) {
+        return reply.send({ executions: dbRows, total: dbRows.length, source: 'db' });
+      }
+
+      const executions = executionRegistry.listByWallet(wallet, cap);
+      return reply.send({ executions, total: executions.length, source: 'memory' });
     },
   );
 
@@ -121,7 +139,8 @@ export async function executionRoutes(
       return reply.status(400).send({ error: 'wallet query param is required' });
     }
 
-    const executions = executionRegistry.listByWallet(wallet, 100);
+    const dbRows = await listExecutionsByWallet(wallet, 100);
+    const executions = dbRows ?? executionRegistry.listByWallet(wallet, 100);
 
     // Aggregate completed executions into a per-chain-asset summary
     const byChainAsset = new Map<string, { chain: number; asset: string; amountUsd: number; count: number }>();
@@ -159,50 +178,5 @@ export async function executionRoutes(
     return reply.redirect(`/executions/${request.params.id}/report${request.query.format ? `?format=${request.query.format}` : ''}`);
   });
 
-  // GET /executions/:id/report — download execution report (used by SettlementScreen)
-  fastify.get<{
-    Params: { id: string };
-    Querystring: { format?: string };
-  }>('/executions/:id/report', async (request, reply) => {
-    const { id } = request.params;
-    const format = request.query.format ?? 'json';
-
-    const status = executionRegistry.getStatus(id);
-    if (!status) {
-      return reply.status(404).send({ error: 'Execution not found' });
-    }
-
-    if (format === 'json') {
-      reply.header('Content-Disposition', `attachment; filename="meridian-execution-${id}.json"`);
-      reply.header('Content-Type', 'application/json');
-      return reply.send(JSON.stringify(status, null, 2));
-    }
-
-    if (format === 'csv') {
-      const lines: string[] = [
-        'executionId,strategyId,status,currentStep,totalSteps,elapsedSeconds',
-        [
-          status.executionId,
-          status.strategyId ?? '',
-          status.status,
-          status.currentStep,
-          status.totalSteps,
-          status.elapsedSeconds ?? '',
-        ].join(','),
-        '',
-        'stepIndex,stepStatus,txHash,chain,completedAt',
-        ...status.steps.map((s) =>
-          [s.index, s.status, s.txHash ?? '', s.chain ?? '', s.completedAt ?? ''].join(','),
-        ),
-      ];
-      reply.header('Content-Disposition', `attachment; filename="meridian-execution-${id}.csv"`);
-      reply.header('Content-Type', 'text/csv');
-      return reply.send(lines.join('\n'));
-    }
-
-    // PDF: return JSON with a hint (real PDF generation would need puppeteer/pdfmake)
-    reply.header('Content-Disposition', `attachment; filename="meridian-execution-${id}.json"`);
-    reply.header('Content-Type', 'application/json');
-    return reply.send(JSON.stringify({ ...status, _format: 'pdf-stub' }, null, 2));
-  });
+  // Note: GET /executions/:id/report is registered in export.ts
 }

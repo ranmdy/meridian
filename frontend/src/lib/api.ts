@@ -92,11 +92,16 @@ export interface ExecutionStatus {
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error('Backend unreachable');
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Unknown error' }));
     throw new Error(err.error ?? `HTTP ${res.status}`);
@@ -129,7 +134,12 @@ export interface MarketplaceBrowseResponse {
 }
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`);
+  } catch {
+    throw new Error('Backend unreachable');
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Unknown error' }));
     throw new Error(err.error ?? `HTTP ${res.status}`);
@@ -144,7 +154,12 @@ export const api = {
         wallet ? `/auth/nonce?wallet=${encodeURIComponent(wallet)}` : '/auth/nonce',
       ),
     verify: (nonce: string, signature: string, wallet: string) =>
-      post<{ token: string; wallet: string; expiresAt: number }>('/auth/verify', { nonce, signature, wallet }),
+      post<{ token: string; wallet: string; expiresAt: number; refreshExpiresAt: number }>('/auth/verify', { nonce, signature, wallet }),
+    refresh: (refreshToken?: string) =>
+      post<{ token: string; wallet: string; expiresAt: number; refreshExpiresAt: number }>(
+        '/auth/refresh',
+        refreshToken ? { refreshToken } : {},
+      ),
     me: () => get<{ wallet: string; expiresAt: number }>('/auth/me'),
     logout: () => post<{ ok: boolean }>('/auth/logout', {}),
   },

@@ -30,7 +30,7 @@ import { emitWebhookEvent } from '../webhooks/index.js';
 import { mainnet, arbitrum, base, bsc, polygon, optimism, avalanche, scroll, zkSync } from 'viem/chains';
 import { getCachedRelayerAccount, signerDescription } from '../kms-signer/index.js';
 import { monitoring } from '../monitoring/index.js';
-import { relayer as relayerMetrics } from '../metrics/index.js';
+import { relayer as relayerMetrics, anomaly } from '../metrics/index.js';
 import { nonceManager } from '../nonce-manager/index.js';
 import { config } from '../../config/index.js';
 
@@ -592,6 +592,10 @@ export class RelayerManager {
         job.updatedAt = Date.now();
         this.notify(job.strategyId, job);
       }
+      const bridge = BRIDGE_FALLBACK_ORDER[job.retries % BRIDGE_FALLBACK_ORDER.length];
+      relayerMetrics.jobSuccess(bridge);
+      relayerMetrics.jobDuration(bridge, job.updatedAt - job.createdAt);
+      anomaly.record('success');
     } else {
       job.status = 'pending';
       job.updatedAt = Date.now();
@@ -615,14 +619,19 @@ export class RelayerManager {
     job.lastError = error;
     job.updatedAt = Date.now();
 
+    const bridge = BRIDGE_FALLBACK_ORDER[job.retries % BRIDGE_FALLBACK_ORDER.length];
+
     if (job.retries >= job.maxRetries) {
       job.status = 'failed';
+      relayerMetrics.jobFailed(bridge, error);
+      anomaly.record('failure');
       void monitoring.captureError(new Error(error), {
         jobId: job.id, strategyId: job.strategyId, retries: job.retries,
       });
     } else {
       const backoffMs = Math.pow(2, job.retries) * 1_000;
       job.status = 'pending';
+      relayerMetrics.jobRetried(bridge, job.retries);
       console.warn(`[Relayer] Job ${job.id} retry ${job.retries}/${job.maxRetries} in ${backoffMs}ms`);
       setTimeout(() => {
         if (job.status === 'pending') {
