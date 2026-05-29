@@ -1,20 +1,31 @@
 'use client';
 
 import { useState, useRef, useMemo, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAccount } from 'wagmi';
 import { Field } from '@/src/components/ui';
-import { PROTOCOLS, KIND_COLOR, type Protocol } from '@/src/lib/mockData';
+import { PALETTE_ITEMS, KIND_COLORS } from '@/src/components/composer/palette';
+import { api, type Route, type SimulationResult } from '@/src/lib/api';
 
 const NODE_W = 184;
 const NODE_H = 86;
 let __nodeSeq = 100;
 function nextNodeId() { return 'n' + (++__nodeSeq); }
 
+function n(v: number | null | undefined): number { return v ?? 0; }
+
 interface CanvasNode {
   id: string;
-  kind: string;
+  kind: 'wallet' | 'bridge' | 'swap' | 'lend' | 'stake';
+  protocol: string;
   label: string;
-  chain: string;
-  apy?: number;
+  chain: number;
+  chainName: string;
+  asset: string;
+  toAsset?: string;
+  toChain?: number;
+  apyBps?: number;
+  slippageBps?: number;
   x: number;
   y: number;
 }
@@ -25,60 +36,81 @@ interface DragState {
   offY: number;
 }
 
+interface ComposeResult {
+  route: Route;
+  simulation?: SimulationResult;
+  quoteExpiresAt: number;
+}
+
+const KINDS = ['wallet', 'bridge', 'swap', 'lend', 'stake'] as const;
+
 export function ComposerPage() {
+  const router = useRouter();
+  const { address } = useAccount();
+
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [amount, setAmount] = useState('1000');
 
   const [nodes, setNodes] = useState<CanvasNode[]>([
-    { id: 'n1', kind: 'wallet', label: 'EVM Wallet', chain: 'Ethereum', x: 60, y: 140 },
-    { id: 'n2', kind: 'bridge', label: 'Across', chain: 'cross-chain', x: 300, y: 140 },
-    { id: 'n3', kind: 'swap', label: 'Aerodrome', chain: 'Base', x: 540, y: 140 },
-    { id: 'n4', kind: 'lend', label: 'Moonwell', chain: 'Base', apy: 14.82, x: 780, y: 140 },
+    { id: 'n1', kind: 'wallet', protocol: 'wallet', label: 'ETH Wallet',    chain: 1,    chainName: 'Ethereum', asset: 'ETH',  x: 60,  y: 140 },
+    { id: 'n2', kind: 'bridge', protocol: 'across', label: 'Across → Base', chain: 1,    chainName: 'Ethereum', asset: 'USDC', x: 300, y: 140 },
+    { id: 'n3', kind: 'lend',   protocol: 'aave_v3',label: 'Aave v3 (Base)',chain: 8453, chainName: 'Base',     asset: 'USDC', apyBps: 520, x: 540, y: 140 },
   ]);
-  const [selectedId, setSelectedId] = useState<string | null>('n3');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const [composing, setComposing] = useState(false);
+  const [composeError, setComposeError] = useState<string | null>(null);
+  const [composeResult, setComposeResult] = useState<ComposeResult | null>(null);
+  const [executing, setExecuting] = useState(false);
+  const [executeError, setExecuteError] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<DragState | null>(null);
 
-  const kinds = ['wallet', 'bridge', 'swap', 'lend', 'stake'];
-
-  const filteredProtocols = PROTOCOLS.filter(p => {
+  const filteredItems = PALETTE_ITEMS.filter(p => {
     if (filter !== 'all' && p.kind !== filter) return false;
-    if (search && !(p.label.toLowerCase().includes(search.toLowerCase()) || p.chain.toLowerCase().includes(search.toLowerCase()))) return false;
+    if (search && !(
+      p.label.toLowerCase().includes(search.toLowerCase()) ||
+      p.chainName.toLowerCase().includes(search.toLowerCase())
+    )) return false;
     return true;
   });
 
   const grouped = useMemo(() => {
-    const g: Record<string, Protocol[]> = {};
-    filteredProtocols.forEach(p => {
-      (g[p.kind] = g[p.kind] || []).push(p);
-    });
+    const g: Record<string, typeof PALETTE_ITEMS> = {};
+    filteredItems.forEach(p => { (g[p.kind] = g[p.kind] || []).push(p); });
     return g;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, search]);
 
   const ordered = [...nodes].sort((a, b) => a.x - b.x);
-  const edges = ordered.slice(0, -1).map((n, i) => ({ from: n.id, to: ordered[i + 1].id }));
+  const edges = ordered.slice(0, -1).map((nd, i) => ({ from: nd.id, to: ordered[i + 1].id }));
 
   const hasWallet = ordered.length > 0 && ordered[0].kind === 'wallet';
-  const ends = ordered.length > 0 && (ordered[ordered.length - 1].kind === 'lend' || ordered[ordered.length - 1].kind === 'stake');
+  const lastKind = ordered.length > 0 ? ordered[ordered.length - 1].kind : '';
+  const ends = lastKind === 'lend' || lastKind === 'stake';
   const valid = nodes.length >= 2 && hasWallet && ends;
-  const projectedApy = ordered.reduce((acc, n) => n.apy ? n.apy : acc, 0);
 
-  const selected = nodes.find(n => n.id === selectedId) || null;
+  const orderedSteps = ordered.filter(nd => nd.kind !== 'wallet');
+  const projectedApy = orderedSteps.reduce((acc, nd) => nd.apyBps ? nd.apyBps / 100 : acc, 0);
 
+  const selected = nodes.find(nd => nd.id === selectedId) ?? null;
+
+  // ── Drag to reposition nodes ────────────────────────────────────────────────
   function onNodePointerDown(e: React.PointerEvent, id: string) {
     e.stopPropagation();
     setSelectedId(id);
-    const node = nodes.find(n => n.id === id);
+    const node = nodes.find(nd => nd.id === id);
     if (!node || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     dragState.current = {
       id,
       offX: e.clientX - rect.left + canvasRef.current.scrollLeft - node.x,
-      offY: e.clientY - rect.top + canvasRef.current.scrollTop - node.y,
+      offY: e.clientY - rect.top  + canvasRef.current.scrollTop  - node.y,
     };
     window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointerup',   onPointerUp);
   }
 
   function onPointerMove(e: PointerEvent) {
@@ -86,102 +118,173 @@ export function ComposerPage() {
     if (!ds || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const x = Math.max(8, e.clientX - rect.left + canvasRef.current.scrollLeft - ds.offX);
-    const y = Math.max(8, e.clientY - rect.top + canvasRef.current.scrollTop - ds.offY);
-    setNodes(prev => prev.map(n => n.id === ds.id ? { ...n, x, y } : n));
+    const y = Math.max(8, e.clientY - rect.top  + canvasRef.current.scrollTop  - ds.offY);
+    setNodes(prev => prev.map(nd => nd.id === ds.id ? { ...nd, x, y } : nd));
   }
 
   function onPointerUp() {
     dragState.current = null;
     window.removeEventListener('pointermove', onPointerMove);
-    window.removeEventListener('pointerup', onPointerUp);
+    window.removeEventListener('pointerup',   onPointerUp);
   }
 
-  function onPaletteDragStart(e: React.DragEvent, p: Protocol) {
-    e.dataTransfer.setData('text/plain', p.id);
+  // ── Palette drag → canvas drop ──────────────────────────────────────────────
+  function onPaletteDragStart(e: React.DragEvent, idx: number) {
+    e.dataTransfer.setData('text/plain', String(idx));
     e.dataTransfer.effectAllowed = 'copy';
   }
 
   function onCanvasDrop(e: React.DragEvent) {
     e.preventDefault();
-    const pid = e.dataTransfer.getData('text/plain');
-    const proto = PROTOCOLS.find(p => p.id === pid);
-    if (!proto || !canvasRef.current) return;
+    const idx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+    if (isNaN(idx) || idx < 0 || idx >= PALETTE_ITEMS.length) return;
+    const proto = PALETTE_ITEMS[idx];
+    if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left + canvasRef.current.scrollLeft - NODE_W / 2;
-    const y = e.clientY - rect.top + canvasRef.current.scrollTop - NODE_H / 2;
+    const y = e.clientY - rect.top  + canvasRef.current.scrollTop  - NODE_H / 2;
     const id = nextNodeId();
     setNodes(prev => [
       ...prev,
-      { id, kind: proto.kind, label: proto.label, chain: proto.chain, apy: proto.apy, x: Math.max(8, x), y: Math.max(8, y) },
+      { id, kind: proto.kind, protocol: proto.protocol, label: proto.label,
+        chain: proto.chain, chainName: proto.chainName, asset: proto.asset,
+        apyBps: proto.apyBps, x: Math.max(8, x), y: Math.max(8, y) },
     ]);
     setSelectedId(id);
+    setComposeResult(null);
   }
 
   function deleteNode(id: string) {
-    setNodes(prev => prev.filter(n => n.id !== id));
+    setNodes(prev => prev.filter(nd => nd.id !== id));
     if (selectedId === id) setSelectedId(null);
+    setComposeResult(null);
   }
 
   function clearCanvas() {
     setNodes([]);
     setSelectedId(null);
+    setComposeResult(null);
   }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId && (document.activeElement as HTMLElement)?.tagName !== 'INPUT') {
+      if ((e.key === 'Delete' || e.key === 'Backspace') &&
+          selectedId &&
+          (document.activeElement as HTMLElement)?.tagName !== 'INPUT') {
         deleteNode(selectedId);
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
   function updateSelected(patch: Partial<CanvasNode>) {
-    setNodes(prev => prev.map(n => n.id === selectedId ? { ...n, ...patch } : n));
+    setNodes(prev => prev.map(nd => nd.id === selectedId ? { ...nd, ...patch } : nd));
+    setComposeResult(null);
   }
+
+  // ── Compose ─────────────────────────────────────────────────────────────────
+  async function handleCompose() {
+    if (!valid) return;
+    setComposing(true);
+    setComposeError(null);
+    setComposeResult(null);
+    try {
+      const steps = orderedSteps.map((nd, i) => {
+        const next = orderedSteps[i + 1];
+        return {
+          stepType: nd.kind.toUpperCase() as 'SWAP' | 'BRIDGE' | 'LEND' | 'STAKE',
+          protocol: nd.protocol,
+          fromAsset: nd.asset,
+          toAsset: nd.toAsset ?? (next?.asset ?? nd.asset),
+          fromChain: nd.chain,
+          toChain: nd.toChain ?? (next?.chain ?? nd.chain),
+          slippageBps: nd.slippageBps,
+          apyBps: nd.apyBps,
+        };
+      });
+      const res = await api.strategy.compose({ steps, simulate: true, fromAddress: address });
+      setComposeResult({ route: res.route, simulation: res.simulation, quoteExpiresAt: res.quoteExpiresAt });
+      setSelectedId(null); // show route summary panel
+    } catch (err) {
+      setComposeError(err instanceof Error ? err.message : 'Compose failed');
+    } finally {
+      setComposing(false);
+    }
+  }
+
+  // ── Execute ─────────────────────────────────────────────────────────────────
+  async function handleExecute() {
+    if (!composeResult || !address) return;
+    const walletNode = ordered.find(nd => nd.kind === 'wallet');
+    const lastNode = ordered[ordered.length - 1];
+    setExecuting(true);
+    setExecuteError(null);
+    try {
+      const res = await api.strategy.execute({
+        strategyId: crypto.randomUUID(),
+        walletAddress: address,
+        sourceAsset:   walletNode?.asset  ?? orderedSteps[0]?.asset  ?? 'USDC',
+        sourceChain:   walletNode?.chain  ?? orderedSteps[0]?.chain  ?? 1,
+        destinationChain: lastNode.chain,
+        sourceAmountUsd: parseFloat(amount) || 1000,
+        stepCount: orderedSteps.length,
+        quoteExpiresAt: composeResult.quoteExpiresAt,
+      });
+      router.push('/execution/' + res.executionId);
+    } catch (err) {
+      setExecuteError(err instanceof Error ? err.message : 'Execute failed');
+      setExecuting(false);
+    }
+  }
+
+  // ── Status label ─────────────────────────────────────────────────────────────
+  const statusLabel = valid
+    ? composeResult ? 'composed · ready to execute' : 'ready to compose'
+    : !hasWallet ? 'must start with a wallet'
+    : !ends       ? 'must end at lend / stake'
+    :               'add at least 2 nodes';
 
   return (
     <div style={{ height: 'calc(100vh - 56px)', display: 'flex', flexDirection: 'column' }}>
-      {/* TOOLBAR */}
+
+      {/* ── TOOLBAR ────────────────────────────────────────────────────────── */}
       <div
         className="hairline-b"
-        style={{ height: 48, display: 'flex', alignItems: 'center', padding: '0 20px', background: 'var(--paper)', flexShrink: 0 }}
+        style={{ height: 48, display: 'flex', alignItems: 'center', padding: '0 20px',
+                 background: 'var(--paper)', flexShrink: 0, gap: 12 }}
       >
-        <div className="flex gap-4 items-center">
-          <span className="eyebrow">Composer</span>
-          <span className="mono c-ink-3" style={{ fontSize: 11 }}>
-            {nodes.length} nodes · {edges.length} edges · {nodes.length} steps
-          </span>
-        </div>
-        <div className="ml-auto flex gap-2 items-center">
-          <span className="mono" style={{ fontSize: 11, marginRight: 8, color: valid ? 'var(--ok)' : 'var(--warn)' }}>
-            ● {valid
-              ? 'route valid · ready to optimize'
-              : !hasWallet
-              ? 'must start with a wallet'
-              : !ends
-              ? 'must end at lend / stake'
-              : 'add at least 2 nodes'
-            }
-          </span>
-          <button className="btn btn-outline btn-sm" onClick={clearCanvas}>Clear</button>
-          <button className="btn btn-ghost btn-sm">Save draft</button>
-          <button
-            className="btn btn-signal btn-sm"
-            disabled={!valid}
-          >
-            Run strategy →
-          </button>
-        </div>
+        <span className="eyebrow">Composer</span>
+        <span className="mono c-ink-3" style={{ fontSize: 11 }}>
+          {orderedSteps.length} steps · {edges.length} edges
+        </span>
+        <div style={{ flex: 1 }} />
+        <label className="mono" style={{ fontSize: 11, color: 'var(--ink-2)' }}>USD</label>
+        <input
+          className="input mono"
+          value={amount}
+          onChange={e => setAmount(e.target.value)}
+          style={{ width: 90, fontSize: 12, height: 30 }}
+          placeholder="1000"
+        />
+        <span className="mono" style={{ fontSize: 11, color: valid ? 'var(--ok)' : 'var(--warn)' }}>
+          ● {statusLabel}
+        </span>
+        <button className="btn btn-outline btn-sm" onClick={clearCanvas}>Clear</button>
+        <button
+          className="btn btn-signal btn-sm"
+          disabled={!valid || composing}
+          onClick={handleCompose}
+        >
+          {composing ? 'Composing…' : composeResult ? 'Re-compose' : 'Compose & Simulate →'}
+        </button>
       </div>
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        {/* PALETTE */}
-        <aside
-          className="hairline-r"
-          style={{ width: 280, background: 'var(--paper)', overflow: 'auto', flexShrink: 0 }}
-        >
+
+        {/* ── PALETTE ──────────────────────────────────────────────────────── */}
+        <aside className="hairline-r" style={{ width: 280, background: 'var(--paper)', overflow: 'auto', flexShrink: 0 }}>
           <div className="p-4 hairline-b">
             <div className="label mb-2">Palette</div>
             <input
@@ -192,61 +295,58 @@ export function ComposerPage() {
               style={{ fontSize: 12 }}
             />
             <div className="flex gap-1 flex-wrap mt-3">
-              <button
-                className={'pill ' + (filter === 'all' ? 'active' : '')}
-                onClick={() => setFilter('all')}
-              >
-                all
-              </button>
-              {kinds.map(k => (
-                <button
-                  key={k}
-                  className={'pill ' + (filter === k ? 'active' : '')}
-                  onClick={() => setFilter(k)}
-                >
-                  <span className="dot-sq" style={{ color: KIND_COLOR[k], width: 6, height: 6 }} /> {k}
+              <button className={'pill ' + (filter === 'all' ? 'active' : '')} onClick={() => setFilter('all')}>all</button>
+              {KINDS.map(k => (
+                <button key={k} className={'pill ' + (filter === k ? 'active' : '')} onClick={() => setFilter(k)}>
+                  <span style={{ display: 'inline-block', width: 6, height: 6, background: KIND_COLORS[k], marginRight: 4, flexShrink: 0 }} />
+                  {k}
                 </button>
               ))}
             </div>
           </div>
-          {kinds.filter(k => grouped[k]?.length).map(k => (
+
+          {KINDS.filter(k => grouped[k]?.length).map(k => (
             <div key={k} className="p-4 hairline-b">
-              <div className="eyebrow mb-3" style={{ color: KIND_COLOR[k] }}>
-                <span className="dot-sq" style={{ color: KIND_COLOR[k], marginRight: 6 }} />
+              <div className="eyebrow mb-3" style={{ color: KIND_COLORS[k] }}>
+                <span style={{ display: 'inline-block', width: 6, height: 6, background: KIND_COLORS[k], marginRight: 6 }} />
                 {k} · {grouped[k].length}
               </div>
               <div className="col gap-2">
-                {grouped[k].map(p => (
-                  <div
-                    key={p.id}
-                    className="card-flat p-3"
-                    draggable
-                    onDragStart={e => onPaletteDragStart(e, p)}
-                    style={{ cursor: 'grab', borderLeft: '3px solid ' + KIND_COLOR[k] }}
-                  >
-                    <div className="between gap-2">
-                      <div className="col gap-1" style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 500, fontSize: 13 }}>{p.label}</div>
-                        <div className="caption mono c-ink-3" style={{ fontSize: 11 }}>{p.chain}</div>
+                {grouped[k].map(p => {
+                  const idx = PALETTE_ITEMS.indexOf(p);
+                  return (
+                    <div
+                      key={idx}
+                      className="card-flat p-3"
+                      draggable
+                      onDragStart={e => onPaletteDragStart(e, idx)}
+                      style={{ cursor: 'grab', borderLeft: '3px solid ' + KIND_COLORS[k] }}
+                    >
+                      <div className="between gap-2">
+                        <div className="col gap-1" style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 500, fontSize: 13 }}>{p.label}</div>
+                          <div className="caption mono c-ink-3" style={{ fontSize: 11 }}>{p.chainName} · {p.asset}</div>
+                        </div>
+                        {p.apyBps && (
+                          <span className="mono" style={{ fontSize: 12, color: KIND_COLORS[k], fontWeight: 500 }}>
+                            {(p.apyBps / 100).toFixed(1)}%
+                          </span>
+                        )}
                       </div>
-                      {p.apy && (
-                        <span className="mono" style={{ fontSize: 12, color: KIND_COLOR[k], fontWeight: 500 }}>
-                          {p.apy.toFixed(1)}%
-                        </span>
-                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}
+
           <div className="p-4 caption muted">
-            Drag a protocol onto the canvas. Nodes auto-connect left → right to set execution order — drag to reorder.
-            Select a node and press <span className="mono">Delete</span> to remove.
+            Drag a protocol onto the canvas. Nodes auto-connect left → right by x-position.
+            Select + press <span className="mono">Delete</span> to remove.
           </div>
         </aside>
 
-        {/* CANVAS */}
+        {/* ── CANVAS ───────────────────────────────────────────────────────── */}
         <main
           ref={canvasRef}
           className="dot-bg"
@@ -256,32 +356,29 @@ export function ComposerPage() {
           onDrop={onCanvasDrop}
         >
           <div style={{ position: 'relative', width: 1400, height: 700, minWidth: '100%', minHeight: '100%' }}>
+
             {/* Edges */}
-            <svg
-              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible' }}
-            >
+            <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible' }}>
               {edges.map((e, i) => {
-                const from = nodes.find(n => n.id === e.from);
-                const to = nodes.find(n => n.id === e.to);
+                const from = nodes.find(nd => nd.id === e.from);
+                const to   = nodes.find(nd => nd.id === e.to);
                 if (!from || !to) return null;
-                const x1 = from.x + NODE_W;
-                const y1 = from.y + 40;
-                const x2 = to.x;
-                const y2 = to.y + 40;
+                const x1 = from.x + NODE_W, y1 = from.y + 40;
+                const x2 = to.x,             y2 = to.y   + 40;
                 const mx = (x1 + x2) / 2;
-                const involvesSwap = from.kind === 'swap' || to.kind === 'swap';
-                const stroke = involvesSwap ? 'var(--c-ochre)' : 'var(--ink)';
+                const stroke = from.kind === 'bridge' ? KIND_COLORS.bridge : 'var(--ink-3)';
                 return (
                   <g key={i}>
-                    <path d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`} stroke={stroke} strokeWidth="1.5" fill="none" />
+                    <path
+                      d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`}
+                      stroke={stroke} strokeWidth="1.5" fill="none"
+                      strokeDasharray={from.kind === 'bridge' ? '4 3' : undefined}
+                    />
                     <circle cx={x2} cy={y2} r="3.5" fill={stroke} />
                     <text
-                      x={(x1 + x2) / 2}
-                      y={Math.min(y1, y2) - 8}
-                      fontSize="9"
-                      fontFamily="JetBrains Mono"
-                      fill="var(--ink-3)"
-                      textAnchor="middle"
+                      x={(x1 + x2) / 2} y={Math.min(y1, y2) - 8}
+                      fontSize="9" fontFamily="JetBrains Mono"
+                      fill="var(--ink-3)" textAnchor="middle"
                       style={{ letterSpacing: '0.1em' }}
                     >
                       {String(i + 1).padStart(2, '0')}
@@ -292,63 +389,53 @@ export function ComposerPage() {
             </svg>
 
             {/* Nodes */}
-            {nodes.map(n => {
-              const stepNo = ordered.findIndex(o => o.id === n.id) + 1;
-              const isSel = selectedId === n.id;
+            {nodes.map(node => {
+              const stepNo = ordered.findIndex(o => o.id === node.id) + 1;
+              const isSel  = selectedId === node.id;
+              const apy    = node.apyBps ? node.apyBps / 100 : null;
               return (
                 <div
-                  key={n.id}
-                  onPointerDown={e => onNodePointerDown(e, n.id)}
-                  onClick={e => { e.stopPropagation(); setSelectedId(n.id); }}
+                  key={node.id}
+                  onPointerDown={e => onNodePointerDown(e, node.id)}
+                  onClick={e => { e.stopPropagation(); setSelectedId(node.id); }}
                   style={{
-                    position: 'absolute',
-                    left: n.x,
-                    top: n.y,
-                    width: NODE_W,
+                    position: 'absolute', left: node.x, top: node.y, width: NODE_W,
                     background: 'var(--card)',
                     border: '1px solid ' + (isSel ? 'var(--ink)' : 'color-mix(in oklch, var(--ink) 20%, transparent)'),
-                    borderLeft: '3px solid ' + KIND_COLOR[n.kind],
-                    cursor: 'grab',
-                    fontSize: 12,
+                    borderLeft: '3px solid ' + KIND_COLORS[node.kind],
+                    cursor: 'grab', fontSize: 12, touchAction: 'none', userSelect: 'none',
                     boxShadow: isSel ? '0 0 0 3px color-mix(in oklch, var(--signal) 30%, transparent)' : 'none',
-                    touchAction: 'none',
-                    userSelect: 'none',
                   }}
                 >
-                  <div
-                    className="px-3 py-2 hairline-b between"
-                    style={{ background: 'color-mix(in oklch, var(--ink) 3%, transparent)' }}
-                  >
-                    <span className="eyebrow" style={{ color: KIND_COLOR[n.kind] }}>{n.kind}</span>
+                  <div className="px-3 py-2 hairline-b between" style={{ background: 'color-mix(in oklch, var(--ink) 3%, transparent)' }}>
+                    <span className="eyebrow" style={{ color: KIND_COLORS[node.kind] }}>{node.kind}</span>
                     <span className="mono c-ink-3" style={{ fontSize: 10 }}>{String(stepNo).padStart(2, '0')}</span>
                   </div>
                   <div className="px-3 py-2 col gap-1">
-                    <div style={{ fontWeight: 500, fontSize: 13 }}>{n.label}</div>
-                    <div className="caption mono c-ink-3" style={{ fontSize: 11 }}>{n.chain}</div>
-                    {n.apy && (
-                      <div className="mono mt-1" style={{ fontSize: 12, color: KIND_COLOR[n.kind] }}>
-                        + {n.apy.toFixed(2)}% APY
+                    <div style={{ fontWeight: 500, fontSize: 13 }}>{node.label}</div>
+                    <div className="caption mono c-ink-3" style={{ fontSize: 11 }}>{node.chainName} · {node.asset}</div>
+                    {apy && (
+                      <div className="mono mt-1" style={{ fontSize: 12, color: KIND_COLORS[node.kind] }}>
+                        + {apy.toFixed(2)}% APY
                       </div>
                     )}
                   </div>
                   {isSel && (
                     <button
-                      onClick={e => { e.stopPropagation(); deleteNode(n.id); }}
+                      onClick={e => { e.stopPropagation(); deleteNode(node.id); }}
                       onPointerDown={e => e.stopPropagation()}
                       title="Delete node"
                       style={{
                         position: 'absolute', top: -10, right: -10, width: 20, height: 20,
-                        background: 'var(--bad)', color: 'white', fontSize: 12, lineHeight: 1,
+                        background: 'var(--bad)', color: 'white', fontSize: 12,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}
-                    >
-                      ×
-                    </button>
+                    >×</button>
                   )}
-                  {n.kind !== 'wallet' && (
+                  {node.kind !== 'wallet' && (
                     <span style={{ position: 'absolute', left: -4, top: 36, width: 8, height: 8, background: 'var(--ink)' }} />
                   )}
-                  {n.kind !== 'lend' && n.kind !== 'stake' && (
+                  {node.kind !== 'lend' && node.kind !== 'stake' && (
                     <span style={{ position: 'absolute', right: -4, top: 36, width: 8, height: 8, background: 'var(--ink)' }} />
                   )}
                 </div>
@@ -367,9 +454,9 @@ export function ComposerPage() {
           <div className="card-flat p-3" style={{ position: 'fixed', right: 316, bottom: 16, background: 'var(--card)' }}>
             <div className="label mb-2">Legend</div>
             <div className="col gap-1">
-              {kinds.map(k => (
+              {KINDS.map(k => (
                 <div key={k} className="flex items-center gap-2" style={{ fontSize: 11 }}>
-                  <span className="dot-sq" style={{ color: KIND_COLOR[k] }} />
+                  <span style={{ display: 'inline-block', width: 8, height: 8, background: KIND_COLORS[k] }} />
                   <span className="mono uppercase" style={{ color: 'var(--ink-2)', letterSpacing: '0.1em' }}>{k}</span>
                 </div>
               ))}
@@ -377,94 +464,183 @@ export function ComposerPage() {
           </div>
         </main>
 
-        {/* INSPECTOR */}
-        <aside
-          className="hairline-l"
-          style={{ width: 300, background: 'var(--paper)', overflow: 'auto', flexShrink: 0 }}
-        >
+        {/* ── INSPECTOR ────────────────────────────────────────────────────── */}
+        <aside className="hairline-l" style={{ width: 300, background: 'var(--paper)', overflow: 'auto', flexShrink: 0 }}>
           {selected ? (
+            /* Node editor */
             <>
               <div className="p-4 hairline-b">
                 <div className="between">
-                  <div className="eyebrow" style={{ color: KIND_COLOR[selected.kind] }}>{selected.kind}</div>
+                  <div className="eyebrow" style={{ color: KIND_COLORS[selected.kind] }}>{selected.kind}</div>
                   <button className="mono c-ink-3" style={{ fontSize: 11 }} onClick={() => deleteNode(selected.id)}>delete</button>
                 </div>
-                <div className="serif mt-2" style={{ fontSize: 20 }}>
-                  {selected.label} <span className="serif-it muted">on {selected.chain}</span>
-                </div>
+                <div className="serif mt-2" style={{ fontSize: 18 }}>{selected.label}</div>
+                <div className="caption mono c-ink-3 mt-1" style={{ fontSize: 11 }}>{selected.chainName}</div>
               </div>
+
               <div className="p-4 col gap-3 hairline-b">
-                <Field label="Label">
-                  <input
-                    className="input"
-                    value={selected.label}
-                    onChange={e => updateSelected({ label: e.target.value })}
-                  />
-                </Field>
-                <Field label="Chain">
-                  <input
-                    className="input mono"
-                    value={selected.chain}
-                    onChange={e => updateSelected({ chain: e.target.value })}
-                    style={{ fontSize: 12 }}
-                  />
-                </Field>
                 {selected.kind === 'swap' && (
                   <>
-                    <Field label="Slippage tolerance"><input className="input mono" defaultValue="0.50%" /></Field>
-                    <Field label="From token"><input className="input mono" defaultValue="USDC" /></Field>
-                    <Field label="To token"><input className="input mono" defaultValue="cbETH" /></Field>
+                    <Field label="From asset">
+                      <input className="input mono" value={selected.asset} style={{ fontSize: 12 }}
+                        onChange={e => updateSelected({ asset: e.target.value })} />
+                    </Field>
+                    <Field label="To asset">
+                      <input className="input mono" value={selected.toAsset ?? ''} placeholder="e.g. cbETH" style={{ fontSize: 12 }}
+                        onChange={e => updateSelected({ toAsset: e.target.value })} />
+                    </Field>
+                    <Field label="Slippage (bps)">
+                      <input className="input mono" value={selected.slippageBps ?? 50} style={{ fontSize: 12 }}
+                        onChange={e => updateSelected({ slippageBps: parseInt(e.target.value) || 50 })} />
+                    </Field>
                   </>
                 )}
                 {(selected.kind === 'lend' || selected.kind === 'stake') && (
-                  <Field label="Target APY" sub="estimate">
-                    <input
-                      className="input mono"
-                      value={(selected.apy || 0).toFixed(2) + '%'}
-                      onChange={e => updateSelected({ apy: parseFloat(e.target.value) || 0 })}
-                    />
-                  </Field>
+                  <>
+                    <Field label="Asset">
+                      <input className="input mono" value={selected.asset} style={{ fontSize: 12 }}
+                        onChange={e => updateSelected({ asset: e.target.value })} />
+                    </Field>
+                    <Field label="APY (bps)" sub="basis points">
+                      <input className="input mono" value={selected.apyBps ?? 0} style={{ fontSize: 12 }}
+                        onChange={e => updateSelected({ apyBps: parseInt(e.target.value) || 0 })} />
+                    </Field>
+                  </>
                 )}
                 {selected.kind === 'bridge' && (
-                  <Field label="Max bridge time" sub="minutes">
-                    <input className="input mono" defaultValue="5" />
+                  <>
+                    <Field label="Asset">
+                      <input className="input mono" value={selected.asset} style={{ fontSize: 12 }}
+                        onChange={e => updateSelected({ asset: e.target.value })} />
+                    </Field>
+                    <Field label="From chain ID">
+                      <input className="input mono" value={selected.chain} style={{ fontSize: 12 }}
+                        onChange={e => updateSelected({ chain: parseInt(e.target.value) || selected.chain })} />
+                    </Field>
+                    <Field label="To chain ID" sub="defaults to next node">
+                      <input className="input mono" value={selected.toChain ?? ''} placeholder="auto" style={{ fontSize: 12 }}
+                        onChange={e => updateSelected({ toChain: parseInt(e.target.value) || undefined })} />
+                    </Field>
+                  </>
+                )}
+                {selected.kind === 'wallet' && (
+                  <Field label="Asset">
+                    <input className="input mono" value={selected.asset} style={{ fontSize: 12 }}
+                      onChange={e => updateSelected({ asset: e.target.value })} />
                   </Field>
                 )}
               </div>
+
               <div className="p-4 col gap-2">
                 <div className="label">Step position</div>
                 <div className="num-lg">
                   {String(ordered.findIndex(o => o.id === selected.id) + 1).padStart(2, '0')}
                   <span style={{ fontSize: 13, color: 'var(--ink-3)' }}> of {nodes.length}</span>
                 </div>
-                <div className="caption mono c-ink-3">Drag node horizontally to change order.</div>
+                <div className="caption mono c-ink-3">Drag node horizontally to reorder.</div>
               </div>
             </>
           ) : (
+            /* Route summary / execute panel */
             <div className="p-4 col gap-4">
               <div className="eyebrow">Route summary</div>
-              <div className="col gap-3">
-                <div>
-                  <div className="label mb-1">Projected APY</div>
-                  <div className="num-lg" style={{ color: valid ? 'var(--ink)' : 'var(--ink-4)' }}>
-                    {valid ? projectedApy.toFixed(2) + '%' : '—'}
+
+              {composeError && (
+                <div className="mono" style={{ fontSize: 11, color: 'var(--bad)', padding: 8, background: 'color-mix(in oklch, var(--bad) 10%, transparent)' }}>
+                  {composeError}
+                </div>
+              )}
+
+              {composeResult ? (
+                <>
+                  <div className="col gap-3">
+                    <div>
+                      <div className="label mb-1">Composed APY</div>
+                      <div className="num-lg" style={{ color: 'var(--ok)' }}>
+                        {(n(composeResult.route.estimatedApyBps) / 100).toFixed(2)}%
+                      </div>
+                    </div>
+                    <div>
+                      <div className="label mb-1">Gas + fees</div>
+                      <div className="num-md">
+                        ${(n(composeResult.route.totalGasUsd) + n(composeResult.route.totalBridgeFeeUsd) + n(composeResult.route.totalProtocolFeeUsd)).toFixed(2)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="label mb-1">Risk score</div>
+                      <div className="num-md" style={{ color: n(composeResult.route.riskScore) >= 40 ? 'var(--warn)' : 'var(--ink)' }}>
+                        {n(composeResult.route.riskScore)} / 100
+                      </div>
+                    </div>
+                    {composeResult.simulation && (
+                      <div>
+                        <div className="label mb-2">Simulation</div>
+                        <div className="col gap-1">
+                          {composeResult.simulation.steps.map((s, i) => (
+                            <div key={i} className="between mono" style={{ fontSize: 11 }}>
+                              <span>Step {String(i + 1).padStart(2, '0')}</span>
+                              <span style={{ color: s.passed ? 'var(--ok)' : 'var(--bad)' }}>
+                                {s.passed ? '✓ pass' : `✗ ${s.revertReason ?? 'fail'}`}
+                              </span>
+                            </div>
+                          ))}
+                          <div className="between mono mt-1" style={{ fontSize: 11, borderTop: '1px solid var(--ink-4)', paddingTop: 6 }}>
+                            <span>All pass</span>
+                            <span style={{ color: composeResult.simulation.allStepsPass ? 'var(--ok)' : 'var(--bad)' }}>
+                              {composeResult.simulation.allStepsPass ? '✓ yes' : '✗ no'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-                <div>
-                  <div className="label mb-1">Steps</div>
-                  <div className="num-md">{nodes.length}</div>
-                </div>
-                <div>
-                  <div className="label mb-1">Status</div>
-                  <div className="mono" style={{ fontSize: 13, color: valid ? 'var(--ok)' : 'var(--warn)' }}>
-                    {valid ? '✓ valid route' : '○ incomplete'}
+
+                  {executeError && (
+                    <div className="mono" style={{ fontSize: 11, color: 'var(--bad)' }}>{executeError}</div>
+                  )}
+
+                  <button
+                    className="btn btn-signal"
+                    disabled={executing || !address}
+                    onClick={handleExecute}
+                    style={{ width: '100%' }}
+                  >
+                    {executing ? 'Executing…' : !address ? 'Connect wallet to execute' : 'Execute strategy →'}
+                  </button>
+                </>
+              ) : (
+                /* Pre-compose summary */
+                <>
+                  <div className="col gap-3">
+                    <div>
+                      <div className="label mb-1">Projected APY</div>
+                      <div className="num-lg" style={{ color: valid ? 'var(--ink)' : 'var(--ink-4)' }}>
+                        {valid ? projectedApy.toFixed(2) + '%' : '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="label mb-1">Steps</div>
+                      <div className="num-md">{orderedSteps.length}</div>
+                    </div>
+                    <div>
+                      <div className="label mb-1">Status</div>
+                      <div className="mono" style={{ fontSize: 13, color: valid ? 'var(--ok)' : 'var(--warn)' }}>
+                        {valid ? '✓ ready to compose' : '○ incomplete'}
+                      </div>
+                    </div>
+                    {valid && (
+                      <button className="btn btn-signal" onClick={handleCompose} disabled={composing}>
+                        {composing ? 'Composing…' : 'Compose & Simulate →'}
+                      </button>
+                    )}
                   </div>
-                </div>
-              </div>
-              <hr />
-              <div className="caption muted">
-                Select a node to edit its parameters, or drag a new protocol from the palette.
-              </div>
+                  <hr />
+                  <div className="caption muted">
+                    Select a node to edit its parameters.
+                    Click "Compose &amp; Simulate" to get a real route with Tenderly simulation.
+                  </div>
+                </>
+              )}
             </div>
           )}
         </aside>

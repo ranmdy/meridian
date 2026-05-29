@@ -75,7 +75,7 @@ export function TemplateLibrary() {
   } = useStrategyStore();
 
   useEffect(() => {
-    void api.templates.categories().then((r) => setCategories(r.categories));
+    void api.templates.categories().then((r) => setCategories(r.categories)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -86,7 +86,7 @@ export function TemplateLibrary() {
       limit: 12,
     }).then((r) => {
       setTemplates(r.templates);
-    }).finally(() => setLoading(false));
+    }).catch(() => {}).finally(() => setLoading(false));
   }, [activeCategory, sort]);
 
   const handleUseTemplate = (t: Template) => {

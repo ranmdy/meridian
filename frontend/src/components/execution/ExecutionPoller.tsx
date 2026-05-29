@@ -43,7 +43,7 @@ export function ExecutionPoller({ executionId, showSettlement = true }: Executio
         if (msg.type === 'status_update' || msg.type === 'strategy_complete' || msg.type === 'strategy_failed') {
           void api.strategy.status(executionId).then((s) => {
             if (active) setAndStore(s);
-          });
+          }).catch(() => {});
         }
       };
 
