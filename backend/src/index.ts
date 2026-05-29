@@ -23,6 +23,7 @@ import { templateRoutes } from './api/routes/templates.js';
 import { executionRegistry } from './services/execution-registry/index.js';
 import { api as apiMetrics, websocket as wsMetrics, anomaly, onchain as onchainMetrics, closeMetrics } from './services/metrics/index.js';
 import { closePool } from './db/index.js';
+import { runMigrations } from './db/migrate.js';
 import { monitoring } from './services/monitoring/index.js';
 import { reportAllApiUsage } from './services/stripe/index.js';
 import type { RelayerJob } from './services/relayer/index.js';
@@ -127,6 +128,9 @@ fastify.get('/health', async () => ({
 
 const start = async () => {
   try {
+    // Run pending DB migrations before anything else
+    await runMigrations();
+
     // Wire live APY data into the strategy engine graph after each quote poll
     quoteEngine.onApyRefresh((quotes) => strategyEngine.refreshFromQuotes(quotes));
 
