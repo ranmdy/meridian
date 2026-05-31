@@ -6,6 +6,7 @@ import { useAccount } from 'wagmi';
 import { Field } from '@/src/components/ui';
 import { PALETTE_ITEMS, KIND_COLORS } from '@/src/components/composer/palette';
 import { api, type Route, type SimulationResult } from '@/src/lib/api';
+import { useExecutionStore } from '@/src/stores/execution';
 
 const NODE_W = 184;
 const NODE_H = 86;
@@ -47,6 +48,7 @@ const KINDS = ['wallet', 'bridge', 'swap', 'lend', 'stake'] as const;
 export function ComposerPage() {
   const router = useRouter();
   const { address } = useAccount();
+  const { setStepMeta } = useExecutionStore();
 
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -232,6 +234,7 @@ export function ComposerPage() {
         stepCount: orderedSteps.length,
         quoteExpiresAt: composeResult.quoteExpiresAt,
       });
+      setStepMeta(res.executionId, composeResult.route.steps);
       router.push('/execution/' + res.executionId);
     } catch (err) {
       setExecuteError(err instanceof Error ? err.message : 'Execute failed');

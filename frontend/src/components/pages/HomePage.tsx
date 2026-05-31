@@ -10,6 +10,7 @@ import {
 import { CHAINS, ASSETS, SAVED_STRATEGIES, fmtUsd, fmtPct, riskColor } from '@/src/lib/mockData';
 import { api, type Route as ApiRoute, type SimulationResult } from '@/src/lib/api';
 import { useAuthStore } from '@/src/stores/auth';
+import { useExecutionStore } from '@/src/stores/execution';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const CHAIN_ID: Record<string, number> = {
@@ -282,6 +283,7 @@ export function HomePage() {
   const router = useRouter();
   const { address, isConnected } = useAccount();
   const { isAuthenticated } = useAuthStore();
+  const { setStepMeta } = useExecutionStore();
 
   // Form state
   const [mode, setMode] = useState<'manual' | 'auto'>('manual');
@@ -405,6 +407,7 @@ export function HomePage() {
         stepCount: raw.steps.length,
         quoteExpiresAt: quoteExpiresAt ?? undefined,
       });
+      setStepMeta(res.executionId, raw.steps);
       router.push(`/execution/${res.executionId}`);
     } catch (e: unknown) {
       setExecError(e instanceof Error ? e.message : 'Execute failed');

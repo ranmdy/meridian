@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { ExecutionStatus } from '@/src/lib/api';
+import type { ExecutionStatus, RouteStep } from '@/src/lib/api';
 
 interface ExecutionState {
   // Active execution being tracked
@@ -10,11 +10,15 @@ interface ExecutionState {
   // Execution history (newest first, limited to last 20 for localStorage)
   history: ExecutionStatus[];
 
+  // Route step metadata keyed by executionId (for protocol labels on execution page)
+  stepMeta: Record<string, RouteStep[]>;
+
   // Actions
   setActiveExecution: (id: string) => void;
   updateStatus: (status: ExecutionStatus) => void;
   clearActive: () => void;
   addToHistory: (status: ExecutionStatus) => void;
+  setStepMeta: (executionId: string, steps: RouteStep[]) => void;
 }
 
 export const useExecutionStore = create<ExecutionState>()(
@@ -23,6 +27,7 @@ export const useExecutionStore = create<ExecutionState>()(
       activeExecutionId: null,
       activeStatus: null,
       history: [],
+      stepMeta: {},
 
       setActiveExecution: (id) => set({ activeExecutionId: id, activeStatus: null }),
 
@@ -46,6 +51,9 @@ export const useExecutionStore = create<ExecutionState>()(
           if (alreadyIn) return s;
           return { history: [status, ...s.history].slice(0, 20) };
         }),
+
+      setStepMeta: (executionId, steps) =>
+        set((s) => ({ stepMeta: { ...s.stepMeta, [executionId]: steps } })),
     }),
     {
       name: 'meridian-execution',
@@ -54,6 +62,7 @@ export const useExecutionStore = create<ExecutionState>()(
         // Active status is ephemeral — poller will refetch it.
         history: s.history,
         activeExecutionId: s.activeExecutionId,
+        stepMeta: s.stepMeta,
       }),
     },
   ),

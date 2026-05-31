@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { PageHead, Spinner } from '@/src/components/ui';
-import { api, type ExecutionStatus, type StepStatus } from '@/src/lib/api';
+import { api, type ExecutionStatus, type StepStatus, type RouteStep } from '@/src/lib/api';
 import { useExecutionStore } from '@/src/stores/execution';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -33,6 +33,36 @@ function fmtTime(ts?: number): string {
 
 function truncateTx(hash: string): string {
   return `${hash.slice(0, 8)}…${hash.slice(-6)}`;
+}
+
+// ── Step metadata helpers ──────────────────────────────────────────────────────
+const CHAIN_NAMES: Record<number, string> = {
+  1: 'Ethereum', 8453: 'Base', 42161: 'Arbitrum', 137: 'Polygon',
+  56: 'BNB', 10: 'Optimism', 43114: 'Avalanche', 534352: 'Scroll', 324: 'zkSync',
+};
+
+function fmtProtocol(p: string): string {
+  return p.replace(/_/g, ' ').replace(/\bv(\d)/gi, 'V$1').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function stepLabel(meta: RouteStep): string {
+  const proto = fmtProtocol(meta.protocol);
+  const type = meta.stepType.charAt(0) + meta.stepType.slice(1).toLowerCase();
+  if (meta.stepType === 'BRIDGE') {
+    const from = CHAIN_NAMES[meta.fromChain] ?? String(meta.fromChain);
+    const to = CHAIN_NAMES[meta.toChain] ?? String(meta.toChain);
+    return `${proto} · Bridge ${meta.fromAsset} (${from} → ${to})`;
+  }
+  if (meta.stepType === 'SWAP') {
+    return `${proto} · Swap ${meta.fromAsset} → ${meta.toAsset}`;
+  }
+  if (meta.stepType === 'LEND') {
+    return `${proto} · Lend ${meta.fromAsset}`;
+  }
+  if (meta.stepType === 'STAKE') {
+    return `${proto} · Stake ${meta.fromAsset}`;
+  }
+  return `${proto} · ${type} ${meta.fromAsset}`;
 }
 
 // ── Step icon ─────────────────────────────────────────────────────────────────
@@ -90,7 +120,8 @@ function ExportButtons({ executionId }: { executionId: string }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export function ExecutionPage({ id }: { id: string }) {
-  const { updateStatus } = useExecutionStore();
+  const { updateStatus, stepMeta } = useExecutionStore();
+  const routeSteps = stepMeta[id] ?? [];
   const [status, setStatus] = useState<ExecutionStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -205,7 +236,11 @@ export function ExecutionPage({ id }: { id: string }) {
                     ? 'Complete'
                     : isFailed
                     ? status.status === 'emergency_exited' ? 'Emergency exit' : 'Failed'
-                    : `Step ${status.currentStep + 1} of ${status.totalSteps} · in progress`}
+                    : (() => {
+                      const m = routeSteps[status.currentStep];
+                      const proto = m ? ` · ${fmtProtocol(m.protocol)}` : '';
+                      return `Step ${status.currentStep + 1} of ${status.totalSteps}${proto} · in progress`;
+                    })()}
                 </div>
               </div>
             </div>
@@ -231,11 +266,15 @@ export function ExecutionPage({ id }: { id: string }) {
                 })}
               </div>
               <div className="flex justify-between mt-2">
-                {status.steps.map((s, i) => (
-                  <span key={i} className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-                    {String(i + 1).padStart(2, '0')}
-                  </span>
-                ))}
+                {status.steps.map((s, i) => {
+                  const m = routeSteps[i];
+                  const tick = m ? fmtProtocol(m.protocol).split(' ')[0] : String(i + 1).padStart(2, '0');
+                  return (
+                    <span key={i} className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                      {tick}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -249,6 +288,8 @@ export function ExecutionPage({ id }: { id: string }) {
                 : s.txHash
                 ? `https://etherscan.io/tx/${s.txHash}`
                 : null;
+              const meta = routeSteps[s.index];
+              const label = meta ? stepLabel(meta) : `Step ${s.index + 1}`;
 
               return (
                 <div key={s.index} className="px-5 py-5 flex gap-4 items-start">
@@ -256,7 +297,7 @@ export function ExecutionPage({ id }: { id: string }) {
                   <div className="col gap-1 flex-1">
                     <div className="flex items-center gap-3">
                       <div style={{ fontSize: 14, color: s.status === 'pending' ? 'var(--ink-3)' : 'var(--ink)', fontWeight: 500 }}>
-                        Step {s.index + 1}
+                        {label}
                       </div>
                       {isStepLive && (
                         <span className="mono c-info" style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
