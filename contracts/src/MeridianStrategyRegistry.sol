@@ -7,6 +7,10 @@ import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step
 /// @notice On-chain registry for published DeFi strategies.
 ///         Stores strategy metadata and creator attribution.
 ///         Full strategy data lives off-chain (IPFS); only the hash is stored here.
+///
+/// @dev Strategy IDs are derived from a per-creator nonce rather than block.timestamp,
+///      making them fully deterministic (computable off-chain before tx confirms) and
+///      immune to miner timestamp manipulation.
 contract MeridianStrategyRegistry is Ownable2Step {
     // ─── Structs ──────────────────────────────────────────────────────────────
 
@@ -25,6 +29,11 @@ contract MeridianStrategyRegistry is Ownable2Step {
 
     /// @notice Authorized router contracts that can increment execution counts.
     mapping(address => bool) public authorizedRouters;
+
+    /// @notice Per-creator nonce used in strategyId derivation.
+    ///         Ensures IDs are unique and deterministic: strategyId is computable
+    ///         off-chain as keccak256(abi.encodePacked(creator, ipfsHash, creatorNonces[creator])).
+    mapping(address => uint256) public creatorNonces;
 
     // ─── Events ───────────────────────────────────────────────────────────────
 
@@ -56,14 +65,19 @@ contract MeridianStrategyRegistry is Ownable2Step {
     // ─── External ─────────────────────────────────────────────────────────────
 
     /// @notice Publish a strategy to the registry.
+    /// @dev    The strategyId is derived from (msg.sender, ipfsHash, creatorNonces[msg.sender]).
+    ///         Callers can compute the expected ID off-chain before submitting.
     /// @param ipfsHash IPFS CID of the full strategy definition JSON.
     /// @return strategyId Unique deterministic ID for this strategy.
     function registerStrategy(string calldata ipfsHash)
         external
         returns (bytes32 strategyId)
     {
+        // Use the current nonce, then increment — makes each registration unique
+        // and deterministic regardless of block timestamp.
+        uint256 nonce = creatorNonces[msg.sender]++;
         strategyId = keccak256(
-            abi.encodePacked(msg.sender, ipfsHash, block.timestamp)
+            abi.encodePacked(msg.sender, ipfsHash, nonce)
         );
 
         if (_strategies[strategyId].creator != address(0)) {
