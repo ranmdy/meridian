@@ -11,13 +11,15 @@ import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step
 ///
 /// Key design decisions:
 ///   - One NFT per strategy ID (bytes32). Minting twice for the same strategy reverts.
-///   - The creator address receives a 2 bps (0.02%) royalty forever, following ERC-2981.
+///   - Royalty is 2 bps (0.02%) following ERC-2981.
 ///   - When the NFT is transferred (sold), the royalty recipient updates to the NEW owner.
-///   - Metadata URI points to an IPFS JSON with strategy stats (APY, risk score, hop count, etc.).
+///     This is an intentional design choice: the royalty follows the NFT, not the original
+///     creator. The current holder — who manages and markets the strategy — earns secondary
+///     sale fees. If you want royalties to stay with the original creator forever, do NOT
+///     transfer the NFT and keep it as the creator's proof-of-authorship.
+///   - Metadata URI points to an IPFS JSON with strategy stats (APY, risk score, hop count).
 ///   - Only the authorised minter (Meridian backend relayer or registry contract) can mint.
 ///   - Soulbound toggle: owner can make a token non-transferable (opt-in per strategy).
-///
-/// Royalty: 2 bps = 0.02%.  MarketplaceContract sends creatorFee to royalty recipient.
 contract MeridianStrategyNFT is ERC721, ERC721URIStorage, ERC721Royalty, Ownable2Step {
     // ─── Constants ────────────────────────────────────────────────────────────
 
@@ -56,6 +58,7 @@ contract MeridianStrategyNFT is ERC721, ERC721URIStorage, ERC721Royalty, Ownable
     // ─── Errors ───────────────────────────────────────────────────────────────
 
     error NotMinter();
+    error NotAuthorized();
     error AlreadyMinted(bytes32 strategyId);
     error Soulbound(uint256 tokenId);
     error ZeroAddress();
@@ -90,7 +93,8 @@ contract MeridianStrategyNFT is ERC721, ERC721URIStorage, ERC721Royalty, Ownable
         _safeMint(creator, tokenId);
         _setTokenURI(tokenId, uri);
 
-        // Set per-token royalty: creator receives 0.02% on secondary sales
+        // Set per-token royalty: creator receives 0.02% on secondary sales.
+        // Note: this royalty recipient updates on each transfer — see _update().
         _setTokenRoyalty(tokenId, creator, ROYALTY_BPS);
 
         strategyTokenId[strategyId] = tokenId;
@@ -104,8 +108,9 @@ contract MeridianStrategyNFT is ERC721, ERC721URIStorage, ERC721Royalty, Ownable
     /// @notice Lock or unlock a token as soulbound (non-transferable).
     ///         Only the current token owner or contract owner can call this.
     function setSoulbound(uint256 tokenId, bool locked) external {
-        address owner = ownerOf(tokenId);
-        if (msg.sender != owner && msg.sender != this.owner()) revert NotMinter();
+        address tokenOwner = ownerOf(tokenId);
+        // owner() is the Ownable contract owner (internal call, not external).
+        if (msg.sender != tokenOwner && msg.sender != owner()) revert NotAuthorized();
         soulbound[tokenId] = locked;
         emit SoulboundSet(tokenId, locked);
     }
@@ -114,6 +119,7 @@ contract MeridianStrategyNFT is ERC721, ERC721URIStorage, ERC721Royalty, Ownable
 
     /// @notice When an NFT is transferred (sold), update the royalty recipient to the new owner.
     ///         This ensures the fee follows the NFT, not the original creator.
+    ///         See contract-level documentation for the rationale behind this design.
     function _update(address to, uint256 tokenId, address auth)
         internal
         override(ERC721)

@@ -12,8 +12,18 @@ import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step
 /// @notice ERC-4626 compliant vault for optional yield compounding.
 ///         Users deposit an asset and receive vault shares.
 ///         Yield is compounded by authorized routers only — no admin withdrawal.
+///
+/// @dev Security properties:
+///      - `_decimalsOffset()` returns 6, adding virtual shares (10^6 units)
+///        that eliminate the ERC-4626 first-depositor inflation attack.
+///        An attacker would need to donate >10^6× the victim's deposit to
+///        manipulate share prices meaningfully — economically infeasible.
+///      - All four ERC-4626 entry points (deposit/withdraw/mint/redeem) are
+///        guarded with nonReentrant to prevent reentrancy via ERC-777 or
+///        other token transfer hooks.
 contract MeridianVault is ERC4626, ReentrancyGuard, Ownable2Step {
     using SafeERC20 for IERC20;
+
     // ─── State ────────────────────────────────────────────────────────────────
 
     /// @notice Routers authorized to trigger yield compounding.
@@ -41,7 +51,17 @@ contract MeridianVault is ERC4626, ReentrancyGuard, Ownable2Step {
         Ownable(msg.sender)
     {}
 
-    // ─── ERC-4626 Overrides ───────────────────────────────────────────────────
+    // ─── ERC-4626 inflation-attack protection ─────────────────────────────────
+
+    /// @notice Returns 6, adding a virtual 10^6 share buffer to prevent the
+    ///         first-depositor inflation attack without sacrificing usability.
+    ///         The effective share denominator becomes totalAssets + 1 vs
+    ///         totalSupply + 10^6, making single-wei attacks economically infeasible.
+    function _decimalsOffset() internal pure override returns (uint8) {
+        return 6;
+    }
+
+    // ─── ERC-4626 Overrides — all entry points guarded with nonReentrant ──────
 
     function deposit(uint256 assets, address receiver)
         public
@@ -52,6 +72,15 @@ contract MeridianVault is ERC4626, ReentrancyGuard, Ownable2Step {
         return super.deposit(assets, receiver);
     }
 
+    function mint(uint256 shares, address receiver)
+        public
+        override
+        nonReentrant
+        returns (uint256 assets)
+    {
+        return super.mint(shares, receiver);
+    }
+
     function withdraw(uint256 assets, address receiver, address owner_)
         public
         override
@@ -59,6 +88,15 @@ contract MeridianVault is ERC4626, ReentrancyGuard, Ownable2Step {
         returns (uint256 shares)
     {
         return super.withdraw(assets, receiver, owner_);
+    }
+
+    function redeem(uint256 shares, address receiver, address owner_)
+        public
+        override
+        nonReentrant
+        returns (uint256 assets)
+    {
+        return super.redeem(shares, receiver, owner_);
     }
 
     // ─── Compound ─────────────────────────────────────────────────────────────
@@ -87,6 +125,6 @@ contract MeridianVault is ERC4626, ReentrancyGuard, Ownable2Step {
     }
 
     // ─── Security: no admin withdrawal ───────────────────────────────────────
-    // ERC-4626 deposit/withdraw are the only fund movement functions.
+    // ERC-4626 deposit/withdraw/mint/redeem are the only fund movement functions.
     // No owner-only transfer, no rescue function, no drain.
 }

@@ -23,11 +23,14 @@ interface IMeridianRouter {
     /// @param protocol    Address of the external protocol to interact with.
     /// @param params      ABI-encoded protocol-specific parameters.
     /// @param minOutput   Minimum tokens out — reverts if slippage exceeds this.
+    /// @param outputAsset The asset produced by this step (address(0) = same asset as input).
+    ///                    Required for SWAP and BRIDGE steps that change the working asset.
     struct Step {
         StepType stepType;
         address protocol;
         bytes params;
         uint256 minOutput;
+        address outputAsset;
     }
 
     /// @notice A complete strategy submitted by a user.
@@ -35,7 +38,8 @@ interface IMeridianRouter {
     /// @param sourceAmount         Amount of sourceAsset deposited.
     /// @param steps                Ordered array of execution steps.
     /// @param destinationWallet    Where settled funds are sent.
-    /// @param destinationSignature EIP-191 signature from destinationWallet proving ownership.
+    /// @param destinationSignature EIP-191 signature from destinationWallet proving ownership,
+    ///                             bound to the initiating user (msg.sender) and this deadline.
     /// @param deadline             Unix timestamp after which the strategy auto-reverts.
     struct Strategy {
         address sourceAsset;
@@ -75,6 +79,7 @@ interface IMeridianRouter {
     );
 
     /// @notice Emitted when a step fails and the strategy cannot continue.
+    ///         Funds are returned to the original depositor before this event.
     event StrategyFailed(
         bytes32 indexed strategyId,
         uint256 failedStep,
@@ -88,6 +93,15 @@ interface IMeridianRouter {
         uint256 amountReturned
     );
 
+    /// @notice Emitted when the authorized relayer address is updated.
+    event RelayerUpdated(address indexed oldRelayer, address indexed newRelayer);
+
+    /// @notice Emitted when the treasury address is updated.
+    event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
+
+    /// @notice Emitted when a protocol's approval status changes.
+    event ProtocolApprovalUpdated(address indexed protocol, bool approved);
+
     // ─── Core Functions ───────────────────────────────────────────────────────
 
     /// @notice Main entry point. User submits a full strategy and it begins executing.
@@ -95,9 +109,16 @@ interface IMeridianRouter {
     function executeStrategy(Strategy calldata strategy) external payable;
 
     /// @notice Called by the authorized relayer after a cross-chain bridge confirms.
-    /// @param strategyId Unique identifier of the in-flight strategy.
-    /// @param stepIndex  The next step to execute after bridge confirmation.
-    function continueStrategy(bytes32 strategyId, uint256 stepIndex) external;
+    /// @param strategyId    Unique identifier of the in-flight strategy.
+    /// @param stepIndex     The next step index to execute (equals state.currentStep).
+    /// @param steps         The full original step array — verified against the stored stepsHash.
+    /// @param bridgedAmount The amount that arrived on this chain after the bridge.
+    function continueStrategy(
+        bytes32 strategyId,
+        uint256 stepIndex,
+        Step[] calldata steps,
+        uint256 bridgedAmount
+    ) external;
 
     /// @notice Halts execution and returns all recoverable funds to the source wallet.
     ///         Can only be called by the original depositor.

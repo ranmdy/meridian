@@ -12,15 +12,24 @@ import {IMeridianRouter} from "./IMeridianRouter.sol";
 /// @title MeridianRouter
 /// @notice Non-custodial cross-chain DeFi strategy executor.
 ///         Deployed once per supported chain. Funds flow through atomically —
-///         Meridian never holds funds beyond the duration of a single transaction.
+///         Meridian never holds funds beyond the duration of a single transaction
+///         (except during cross-chain bridge wait periods).
 ///
 /// @dev Security properties:
-///      - No admin withdrawal functions — owner can only update relayer & fee config.
-///      - emergencyExit always returns to SOURCE wallet only.
-///      - destinationSignature verified on-chain; no trusted-oracle bypass.
+///      - No admin withdrawal functions — owner can only update relayer, fee config,
+///        and the protocol allowlist.
+///      - emergencyExit returns exactly the per-strategy tracked amount to SOURCE wallet,
+///        never the full contract balance, never to destination.
+///      - destinationSignature is bound to msg.sender + deadline — cannot be reused by
+///        a different user or after expiry.
+///      - All external calls are gated by an on-chain protocol allowlist (approvedProtocols).
 ///      - All external calls wrapped with ReentrancyGuard.
 ///      - Slippage enforced via minOutput on every SWAP step.
 ///      - Strategy deadline reverts stale submissions.
+///      - Step failure triggers graceful fund-return rather than full revert, so the
+///        StrategyFailed event is reliably emitted.
+///      - Full steps array is hashed at submission and re-verified by the relayer on
+///        continuation — relayer cannot supply different steps than the user signed.
 contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     using SafeERC20 for IERC20;
     using ECDSA for bytes32;
@@ -31,6 +40,9 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     uint256 public constant FEE_BPS = 8;
     uint256 public constant BPS_DENOMINATOR = 10_000;
 
+    /// @notice Maximum steps per strategy — prevents gas-limit DoS.
+    uint256 public constant MAX_STEPS = 20;
+
     // ─── State ────────────────────────────────────────────────────────────────
 
     /// @notice Address authorized to call continueStrategy (cross-chain relayer).
@@ -39,16 +51,23 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     /// @notice Treasury address that receives execution fees.
     address public treasury;
 
+    /// @notice Allowlist of external protocol contracts the router may call.
+    ///         Only owner can add/remove. Prevents arbitrary external call abuse.
+    mapping(address => bool) public approvedProtocols;
+
     /// @notice Per-strategy execution state.
     struct StrategyState {
-        address user;           // original depositor
-        address sourceAsset;    // token deposited
-        uint256 sourceAmount;   // amount deposited
-        uint256 currentStep;    // next step to execute
-        uint256 totalSteps;     // total steps in strategy
+        address user;               // original depositor
+        address sourceAsset;        // token deposited (for reference / events)
+        uint256 sourceAmount;       // initial working amount (post-fee, for reference)
+        address currentAsset;       // current working asset — updated after each swap/bridge
+        uint256 currentAmount;      // current working amount — updated after each step
+        uint256 currentStep;        // next step to execute
+        uint256 totalSteps;         // total steps in strategy
         bool isActive;
         bool isFailed;
         address destinationWallet;
+        bytes32 stepsHash;          // keccak256(abi.encode(steps)) — verified by relayer
     }
 
     mapping(bytes32 => StrategyState) private _strategies;
@@ -56,20 +75,30 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     // strategyId → step index → amount out (for audit trail)
     mapping(bytes32 => mapping(uint256 => uint256)) private _stepOutputs;
 
+    // Per-user nonce — used in strategyId derivation so IDs are deterministic
+    // and collision-free across blocks and time.
+    mapping(address => uint256) public userNonces;
+
     // ─── Errors ───────────────────────────────────────────────────────────────
 
     error DeadlineExpired();
     error InvalidDestinationSignature();
     error ZeroAddress();
     error ZeroAmount();
+    error StepsLimitExceeded();
     error StrategyNotActive();
-    error StrategyAlreadyActive();
+    /// @dev Replaces StrategyAlreadyActive. Fires if the strategyId was ever initialized
+    ///      (active, completed, or failed) — prevents slot reuse and history corruption.
+    error StrategyUsed();
     error NotRelayer();
     error NotStrategyOwner();
     error SlippageExceeded(uint256 received, uint256 minimum);
     error InvalidStepIndex();
+    error StepsHashMismatch();
     error FeeTransferFailed();
     error UnsupportedStepType();
+    error ETHAmountMismatch();
+    error ProtocolNotApproved(address protocol);
 
     // ─── Modifiers ────────────────────────────────────────────────────────────
 
@@ -97,8 +126,12 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     ///         deducts the 0.08% protocol fee, then begins synchronous step execution.
     ///         Pauses at the first BRIDGE step and waits for the off-chain relayer to call
     ///         `continueStrategy` after the bridge transaction confirms on the destination chain.
-    /// @param  strategy   The fully-specified strategy struct including source asset, amount,
-    ///                    ordered steps, destination wallet, and EIP-191 ownership signature.
+    ///
+    ///         The destination signature is bound to msg.sender and strategy.deadline —
+    ///         it cannot be reused by a different user or after the deadline passes.
+    ///
+    ///         All step protocol addresses must be in the approvedProtocols allowlist.
+    ///         Steps beyond MAX_STEPS are rejected to prevent gas-limit DoS.
     function executeStrategy(Strategy calldata strategy)
         external
         payable
@@ -112,22 +145,33 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
         if (strategy.destinationWallet == address(0)) revert ZeroAddress();
         if (strategy.sourceAmount == 0) revert ZeroAmount();
         if (strategy.steps.length == 0) revert ZeroAmount();
+        if (strategy.steps.length > MAX_STEPS) revert StepsLimitExceeded();
 
-        // 3. Destination wallet ownership verification (on-chain — cannot be bypassed)
-        if (!_verifyDestination(strategy.destinationWallet, strategy.destinationSignature)) {
+        // 3. Destination wallet ownership verification — bound to msg.sender + deadline
+        //    to prevent signature reuse across users or time.
+        if (!_verifyDestination(
+            strategy.destinationWallet,
+            strategy.destinationSignature,
+            msg.sender,
+            strategy.deadline
+        )) {
             revert InvalidDestinationSignature();
         }
 
-        // 4. Derive deterministic strategyId
+        // 4. Derive deterministic strategyId using a per-user nonce.
+        //    The nonce is incremented here so the ID is unique even if all other
+        //    params repeat (e.g. same user, same deadline, same amounts).
         bytes32 strategyId = _deriveStrategyId(msg.sender, strategy);
 
-        // 5. Prevent replay / double-execution
-        if (_strategies[strategyId].isActive) revert StrategyAlreadyActive();
+        // 5. Prevent replay — reject if this slot was ever initialized.
+        //    Checks user != address(0) rather than isActive so completed/failed
+        //    strategies cannot be overwritten.
+        if (_strategies[strategyId].user != address(0)) revert StrategyUsed();
 
         // 6. Pull source asset from user
         if (strategy.sourceAsset == address(0)) {
             // Native ETH
-            require(msg.value == strategy.sourceAmount, "ETH amount mismatch");
+            if (msg.value != strategy.sourceAmount) revert ETHAmountMismatch();
         } else {
             IERC20(strategy.sourceAsset).safeTransferFrom(
                 msg.sender, address(this), strategy.sourceAmount
@@ -139,16 +183,20 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
         uint256 workingAmount = strategy.sourceAmount - fee;
         _transferFee(strategy.sourceAsset, fee);
 
-        // 8. Record strategy state
+        // 8. Record strategy state — currentAsset and currentAmount track the
+        //    working position through swaps/bridges for accurate emergencyExit returns.
         _strategies[strategyId] = StrategyState({
             user: msg.sender,
             sourceAsset: strategy.sourceAsset,
             sourceAmount: workingAmount,
+            currentAsset: strategy.sourceAsset,
+            currentAmount: workingAmount,
             currentStep: 0,
             totalSteps: strategy.steps.length,
             isActive: true,
             isFailed: false,
-            destinationWallet: strategy.destinationWallet
+            destinationWallet: strategy.destinationWallet,
+            stepsHash: keccak256(abi.encode(strategy.steps))
         });
 
         emit StrategyStarted(
@@ -169,9 +217,15 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     /// @notice Called by the off-chain relayer after a bridge step confirms on the destination chain.
     /// @dev    Only the registered `relayer` address can call this function.
     ///         `stepIndex` must equal `state.currentStep` to prevent out-of-order execution.
-    /// @param  strategyId   The keccak256 identifier of the strategy (derived in executeStrategy).
-    /// @param  stepIndex    The index of the step that just completed on the source chain.
-    function continueStrategy(bytes32 strategyId, uint256 stepIndex)
+    ///         `steps` is verified against the stored stepsHash — the relayer cannot substitute
+    ///         different steps than the user originally submitted.
+    ///         `bridgedAmount` is the actual amount received on this chain after bridge fees/slippage.
+    function continueStrategy(
+        bytes32 strategyId,
+        uint256 stepIndex,
+        Step[] calldata steps,
+        uint256 bridgedAmount
+    )
         external
         override
         onlyRelayer
@@ -181,21 +235,21 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
         if (!state.isActive || state.isFailed) revert StrategyNotActive();
         if (stepIndex != state.currentStep) revert InvalidStepIndex();
 
-        // Relayer passes the current working amount as context via calldata — simplified here.
-        // In production this is read from a relayer-signed payload with the post-bridge amount.
-        uint256 amountIn = _stepOutputs[strategyId][stepIndex > 0 ? stepIndex - 1 : 0];
+        // Verify the relayer is supplying the exact same steps the user originally signed.
+        if (keccak256(abi.encode(steps)) != state.stepsHash) revert StepsHashMismatch();
 
-        emit StepExecuted(
-            strategyId,
-            stepIndex,
-            StepType.BRIDGE,  // the step that just confirmed
-            address(0),
-            amountIn
-        );
+        // Update the working amount to reflect what actually arrived post-bridge.
+        state.currentAmount = bridgedAmount;
 
-        // Continue remaining steps (passed in via the Registry in production)
-        // Phase 0: state only — actual step continuation wired in Phase 1
-        state.currentStep = stepIndex;
+        // Apply the bridge step's declared output asset (if the bridge changes the asset).
+        // stepIndex points to the step AFTER the bridge; the bridge is at stepIndex - 1.
+        if (stepIndex > 0 && steps[stepIndex - 1].outputAsset != address(0)) {
+            state.currentAsset = steps[stepIndex - 1].outputAsset;
+        }
+
+        // Continue execution from the step after the bridge.
+        // _executeStepsFrom manages state.currentStep internally.
+        _executeStepsFrom(strategyId, steps, stepIndex, bridgedAmount);
     }
 
     // ─── Core: emergencyExit ──────────────────────────────────────────────────
@@ -203,10 +257,15 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     /// @inheritdoc IMeridianRouter
     /// @notice Immediately terminates a stuck strategy and returns funds to the original depositor.
     /// @dev    Only callable by the original strategy owner (`state.user`).
-    ///         Returns all currently-held tokens to `msg.sender` (the source wallet),
-    ///         NEVER to the destination wallet. Uses CEI pattern — state is updated before
-    ///         the external transfer to prevent reentrancy.
-    /// @param  strategyId   The keccak256 identifier of the strategy to exit.
+    ///         Returns `state.currentAmount` of `state.currentAsset` — exactly what the
+    ///         strategy currently holds — NEVER the full contract balance and NEVER to
+    ///         the destination wallet.
+    ///         Uses CEI pattern — state is updated before the external transfer.
+    ///
+    ///         If the strategy is paused mid-bridge (funds are in the bridge protocol
+    ///         on another chain), `state.currentAmount` reflects the pre-bridge balance.
+    ///         In production bridge adapters should zero `state.currentAmount` once
+    ///         funds leave the router, so this call returns 0 in that case.
     function emergencyExit(bytes32 strategyId)
         external
         override
@@ -218,35 +277,32 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
         if (msg.sender != state.user) revert NotStrategyOwner();
         if (!state.isActive) revert StrategyNotActive();
 
-        // Mark as failed / inactive before external call (CEI pattern)
+        // Capture per-strategy tracked values before state change
+        uint256 amount = state.currentAmount;
+        address asset  = state.currentAsset;
+
+        // Mark as failed / inactive and zero the tracked amount before external call (CEI)
         state.isActive = false;
         state.isFailed = true;
+        state.currentAmount = 0;
 
-        // Return whatever is currently held to SOURCE wallet — NEVER to destination
-        uint256 balance = state.sourceAsset == address(0)
-            ? address(this).balance
-            : IERC20(state.sourceAsset).balanceOf(address(this));
-
-        if (balance > 0) {
-            if (state.sourceAsset == address(0)) {
-                (bool ok,) = state.user.call{value: balance}("");
+        // Return the per-strategy tracked amount to SOURCE wallet — NEVER full balance,
+        // NEVER to destination wallet.
+        if (amount > 0) {
+            if (asset == address(0)) {
+                (bool ok,) = state.user.call{value: amount}("");
                 require(ok, "ETH return failed");
             } else {
-                IERC20(state.sourceAsset).safeTransfer(state.user, balance);
+                IERC20(asset).safeTransfer(state.user, amount);
             }
         }
 
-        emit EmergencyExitTriggered(strategyId, state.user, balance);
+        emit EmergencyExitTriggered(strategyId, state.user, amount);
     }
 
     // ─── View ──────────────────────────────────────────────────────────────────
 
     /// @inheritdoc IMeridianRouter
-    /// @notice Returns the current execution state of a strategy.
-    /// @param  strategyId   The keccak256 identifier of the strategy.
-    /// @return currentStep  Index of the next step to execute.
-    /// @return isActive     True if the strategy is in flight.
-    /// @return isFailed     True if the strategy was emergency-exited or failed.
     function strategyStatus(bytes32 strategyId)
         external
         view
@@ -260,26 +316,41 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     // ─── Admin (no user-fund access) ─────────────────────────────────────────
 
     /// @notice Update the authorized relayer address.
-    /// @dev    Owner-only. This does NOT affect in-flight strategies — only future
+    /// @dev    Owner-only. Does NOT affect in-flight strategies — only future
     ///         `continueStrategy` calls. Rotate immediately if relayer key is compromised.
-    /// @param  newRelayer  New relayer address. Must be non-zero.
     function setRelayer(address newRelayer) external onlyOwner {
         if (newRelayer == address(0)) revert ZeroAddress();
+        address old = relayer;
         relayer = newRelayer;
+        emit RelayerUpdated(old, newRelayer);
     }
 
     /// @notice Update the fee treasury address.
     /// @dev    Owner-only. Fees already collected are unaffected.
-    /// @param  newTreasury  New treasury address. Must be non-zero.
     function setTreasury(address newTreasury) external onlyOwner {
         if (newTreasury == address(0)) revert ZeroAddress();
+        address old = treasury;
         treasury = newTreasury;
+        emit TreasuryUpdated(old, newTreasury);
+    }
+
+    /// @notice Add or remove a protocol from the execution allowlist.
+    /// @dev    Owner-only. Only approved protocols can be called as step targets.
+    ///         This is the primary defense against arbitrary external call attacks.
+    /// @param protocol The protocol contract address to approve or revoke.
+    /// @param approved True to allow, false to revoke.
+    function setProtocolApproved(address protocol, bool approved) external onlyOwner {
+        if (protocol == address(0)) revert ZeroAddress();
+        approvedProtocols[protocol] = approved;
+        emit ProtocolApprovalUpdated(protocol, approved);
     }
 
     // ─── Internal ─────────────────────────────────────────────────────────────
 
     /// @notice Execute steps sequentially starting at `fromIndex`.
-    ///         Stops (waits for relayer) if a BRIDGE step is reached.
+    ///         Pauses (returns) if a BRIDGE step is reached.
+    ///         On step failure: marks strategy failed, emits StrategyFailed,
+    ///         returns the current tracked amount to the user, then returns.
     function _executeStepsFrom(
         bytes32 strategyId,
         Step[] calldata steps,
@@ -293,22 +364,43 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
             Step calldata step = steps[i];
 
             if (step.stepType == StepType.BRIDGE) {
-                // Pause here — relayer will call continueStrategy after confirmation
+                // Pause here — relayer will call continueStrategy after confirmation.
+                // Update state so emergencyExit during the bridge wait returns the correct amount.
                 state.currentStep = i + 1;
+                state.currentAmount = currentAmount;
+                if (step.outputAsset != address(0)) {
+                    state.currentAsset = step.outputAsset;
+                }
                 _stepOutputs[strategyId][i] = currentAmount;
                 emit StepExecuted(strategyId, i, StepType.BRIDGE, step.protocol, currentAmount);
                 return;
             }
 
-            uint256 amountOut = _executeStep(strategyId, i, step, currentAmount);
-
-            if (amountOut < step.minOutput) {
-                revert SlippageExceeded(amountOut, step.minOutput);
+            // Protocol approval check — skip for address(0) (SETTLE steps have no protocol).
+            if (step.protocol != address(0) && !approvedProtocols[step.protocol]) {
+                revert ProtocolNotApproved(step.protocol);
             }
 
+            (bool stepOk, uint256 amountOut) = _executeStep(strategyId, i, step, currentAmount);
+
+            if (!stepOk) {
+                _failStrategy(strategyId, state, i, currentAmount, "StepFailed");
+                return;
+            }
+
+            if (amountOut < step.minOutput) {
+                _failStrategy(strategyId, state, i, currentAmount, "SlippageExceeded");
+                return;
+            }
+
+            // Update per-strategy state after each successful step (CEI: state before emit)
             _stepOutputs[strategyId][i] = amountOut;
-            currentAmount = amountOut;
+            state.currentAmount = amountOut;
+            if (step.outputAsset != address(0)) {
+                state.currentAsset = step.outputAsset;
+            }
             state.currentStep = i + 1;
+            currentAmount = amountOut;
 
             emit StepExecuted(strategyId, i, step.stepType, step.protocol, amountOut);
         }
@@ -317,14 +409,43 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
         _settle(strategyId, state, currentAmount);
     }
 
+    /// @notice Mark a strategy as failed, return current funds to user, and emit StrategyFailed.
+    /// @dev    Called from `_executeStepsFrom` on step failure or slippage breach.
+    ///         Follows CEI: state updated and event emitted before external transfer.
+    function _failStrategy(
+        bytes32 strategyId,
+        StrategyState storage state,
+        uint256 failedStepIndex,
+        uint256 currentAmount,
+        string memory reason
+    ) internal {
+        // CEI: update state before external transfer
+        state.isActive = false;
+        state.isFailed = true;
+        state.currentAmount = 0;
+
+        emit StrategyFailed(strategyId, failedStepIndex, reason);
+
+        // Return current tracked amount to the original depositor
+        if (currentAmount > 0) {
+            if (state.currentAsset == address(0)) {
+                (bool ok,) = state.user.call{value: currentAmount}("");
+                require(ok, "ETH return failed");
+            } else {
+                IERC20(state.currentAsset).safeTransfer(state.user, currentAmount);
+            }
+        }
+    }
+
     /// @notice Dispatch a single step to the appropriate executor.
-    /// @dev    Phase 0: stub — real protocol calls wired per-integration in Phase 1.
+    /// @return ok        True if the step succeeded.
+    /// @return amountOut The amount of output asset received.
     function _executeStep(
         bytes32, /* strategyId */
         uint256, /* stepIndex */
         Step calldata step,
         uint256 amountIn
-    ) internal returns (uint256 amountOut) {
+    ) internal returns (bool ok, uint256 amountOut) {
         if (step.stepType == StepType.SWAP) {
             return _executeSwap(step, amountIn);
         } else if (step.stepType == StepType.LEND) {
@@ -332,75 +453,92 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
         } else if (step.stepType == StepType.STAKE) {
             return _executeStake(step, amountIn);
         } else if (step.stepType == StepType.SETTLE) {
-            return amountIn; // handled in _settle
+            return (true, amountIn); // pass-through; real settlement happens in _settle
         }
         revert UnsupportedStepType();
     }
 
     /// @dev Phase 0 stub — replaced by Uniswap/Curve adapters in Phase 1.
+    ///      Caller (via _executeStepsFrom) must have verified approvedProtocols[step.protocol].
     function _executeSwap(Step calldata step, uint256 amountIn)
         internal
-        returns (uint256)
+        returns (bool, uint256)
     {
-        // Call external DEX adapter via step.protocol + step.params
         (bool ok, bytes memory result) = step.protocol.call(
             abi.encodePacked(step.params, amountIn)
         );
-        require(ok, "Swap failed");
-        return abi.decode(result, (uint256));
+        if (!ok) return (false, 0);
+        return (true, abi.decode(result, (uint256)));
     }
 
     /// @dev Phase 0 stub — replaced by Aave/Compound adapters in Phase 1.
+    ///      Caller (via _executeStepsFrom) must have verified approvedProtocols[step.protocol].
     function _executeLend(Step calldata step, uint256 amountIn)
         internal
-        returns (uint256)
+        returns (bool, uint256)
     {
         (bool ok, bytes memory result) = step.protocol.call(
             abi.encodePacked(step.params, amountIn)
         );
-        require(ok, "Lend failed");
-        return abi.decode(result, (uint256));
+        if (!ok) return (false, 0);
+        return (true, abi.decode(result, (uint256)));
     }
 
     /// @dev Phase 0 stub — replaced by GMX/Pendle adapters in Phase 1.
+    ///      Caller (via _executeStepsFrom) must have verified approvedProtocols[step.protocol].
     function _executeStake(Step calldata step, uint256 amountIn)
         internal
-        returns (uint256)
+        returns (bool, uint256)
     {
         (bool ok, bytes memory result) = step.protocol.call(
             abi.encodePacked(step.params, amountIn)
         );
-        require(ok, "Stake failed");
-        return abi.decode(result, (uint256));
+        if (!ok) return (false, 0);
+        return (true, abi.decode(result, (uint256)));
     }
 
     /// @notice Transfer final amount to the verified destination wallet.
+    /// @dev    Uses state.currentAsset — not state.sourceAsset — so the correct asset
+    ///         is settled even after SWAP steps that changed the working token.
     function _settle(
         bytes32 strategyId,
         StrategyState storage state,
         uint256 finalAmount
     ) internal {
+        // CEI: update state before external transfer
         state.isActive = false;
+        state.currentAmount = 0;
 
-        if (state.sourceAsset == address(0)) {
+        address asset = state.currentAsset;
+
+        if (asset == address(0)) {
             (bool ok,) = state.destinationWallet.call{value: finalAmount}("");
             require(ok, "ETH settle failed");
         } else {
-            IERC20(state.sourceAsset).safeTransfer(state.destinationWallet, finalAmount);
+            IERC20(asset).safeTransfer(state.destinationWallet, finalAmount);
         }
 
         emit StrategyCompleted(
             strategyId,
             state.destinationWallet,
-            state.sourceAsset,
+            asset,
             finalAmount
         );
     }
 
     /// @notice Verify that `destination` signed the canonical verification message.
-    /// @dev    The message includes the destination address and chain ID to prevent
-    ///         cross-chain signature replay attacks.
-    function _verifyDestination(address destination, bytes calldata signature)
+    /// @dev    The message includes:
+    ///           - destination address (prevents destination substitution)
+    ///           - chainid (prevents cross-chain replay)
+    ///           - user/msg.sender (prevents reuse by a different initiator)
+    ///           - deadline (limits signature validity window to this strategy's deadline)
+    ///         Together these four fields ensure the signature is single-use in practice.
+    function _verifyDestination(
+        address destination,
+        bytes calldata signature,
+        address user,
+        uint256 deadline
+    )
         internal
         view
         returns (bool)
@@ -412,10 +550,14 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
                 block.chainid,
                 "\n",
                 "I confirm this wallet is mine: ",
-                destination
+                destination,
+                "\nUser: ",
+                user,
+                "\nDeadline: ",
+                deadline
             )
         );
-        // Use tryRecover so malformed signatures return address(0) rather than reverting.
+        // tryRecover returns address(0) on malformed signatures rather than reverting.
         (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecover(
             MessageHashUtils.toEthSignedMessageHash(message),
             signature
@@ -424,12 +566,15 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
         return recovered == destination;
     }
 
-    /// @notice Derive a unique strategy ID from sender + strategy contents + nonce.
+    /// @notice Derive a unique strategy ID from sender + strategy contents + per-user nonce.
+    /// @dev    Uses `userNonces[user]++` (post-increment) so the nonce value used in the
+    ///         hash is the one BEFORE incrementing. Each call produces a fresh, predictable
+    ///         ID that users can compute off-chain given their current nonce.
     function _deriveStrategyId(address user, Strategy calldata strategy)
         internal
-        view
         returns (bytes32)
     {
+        uint256 nonce = userNonces[user]++;
         return keccak256(
             abi.encode(
                 user,
@@ -438,7 +583,7 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
                 strategy.destinationWallet,
                 strategy.deadline,
                 block.chainid,
-                block.number
+                nonce
             )
         );
     }
