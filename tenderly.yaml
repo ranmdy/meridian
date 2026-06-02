@@ -1,0 +1,70 @@
+# Tenderly project configuration
+# https://docs.tenderly.co/tenderly-cli
+# Usage:  tenderly push   (deploy monitoring)
+#         tenderly export (export local txs to dashboard)
+
+account_id: ${TENDERLY_ACCOUNT}
+project_slug: ${TENDERLY_PROJECT}
+
+# ─── Contract monitoring ──────────────────────────────────────────────────────
+# Alerts are configured via the Tenderly dashboard API after contracts are deployed.
+# This file documents the alert definitions to be created per mainnet deployment.
+
+contracts:
+  # Filled after mainnet deploy (see contracts/deployments.json)
+  - name: MeridianRouter_ETH
+    address: ""          # ethereum mainnet address
+    network_id: 1
+
+  - name: MeridianRouter_Base
+    address: ""
+    network_id: 8453
+
+  - name: MeridianRouter_Arbitrum
+    address: ""
+    network_id: 42161
+
+  - name: MeridianRouter_BNB
+    address: ""
+    network_id: 56
+
+  - name: MeridianRouter_Polygon
+    address: ""
+    network_id: 137
+
+# ─── Alert definitions (for reference — configure via dashboard) ──────────────
+#
+# Alert 1: Unexpected direct ETH transfer (no strategy in progress)
+#   Trigger: contract receives ETH + no matching StrategyStarted in same tx
+#   Severity: CRITICAL
+#   Channels: Slack #security, PagerDuty
+#
+# Alert 2: emergencyExit called
+#   Trigger: EmergencyExitTriggered event emitted
+#   Severity: HIGH
+#   Channels: Slack #ops
+#
+# Alert 3: StrategyFailed spike
+#   Trigger: StrategyFailed event rate > 10/hour
+#   Severity: HIGH
+#   Channels: Slack #ops, email
+#
+# Alert 4: New protocol added to allowlist
+#   Trigger: ProtocolApprovalUpdated(protocol, true) emitted
+#   Severity: MEDIUM
+#   Channels: Slack #security
+#
+# Alert 5: Relayer or treasury address changed
+#   Trigger: RelayerUpdated or TreasuryUpdated emitted
+#   Severity: HIGH
+#   Channels: Slack #security, email
+#
+# Alert 6: Large single-strategy deposit (>$1M)
+#   Trigger: StrategyStarted with amount > 1_000_000 USDC equivalent
+#   Severity: MEDIUM
+#   Channels: Slack #ops
+#
+# Alert 7: Fee transfer failure
+#   Trigger: FeeTransferFailed error revert
+#   Severity: HIGH
+#   Channels: Slack #ops

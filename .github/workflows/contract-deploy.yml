@@ -1,0 +1,265 @@
+name: Contract Deploy — Mainnet
+
+# Manual-only trigger. Must be dispatched by an authorized team member.
+# Requires the "contract-deploy" GitHub Environment which enforces:
+#   1. Two required human reviewers (team leads)
+#   2. Deployment wait timer (1 hour minimum — allows last-minute cancellation)
+#   3. Protected-branch rules preventing unapproved deployments
+#
+# Off-chain multisig ceremony (must be completed BEFORE triggering this workflow):
+#   1. Deploy coordinator creates a Gnosis Safe transaction batch on mainnet
+#      using the deployer EOA as proposer.
+#   2. At least 2 of 3 Safe signers sign the batch via the Safe UI.
+#   3. Deploy coordinator records the Safe TX hash in the workflow input below.
+#   4. The workflow verifies the Safe TX hash was confirmed on-chain before
+#      proceeding with Foundry broadcast.
+#
+# If the Safe TX cannot be verified, the deploy is aborted.
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain:
+        description: 'Target chain'
+        required: true
+        type: choice
+        options:
+          - ethereum
+          - base
+          - arbitrum
+          - bnb
+          - polygon
+      safe_tx_hash:
+        description: 'Gnosis Safe TX hash confirming multisig approval (0x…)'
+        required: true
+        type: string
+      verify:
+        description: 'Verify on block explorer?'
+        required: false
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+      dry_run:
+        description: 'Dry run — simulate only, do not broadcast'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['true', 'false']
+
+concurrency:
+  group: contract-deploy-mainnet
+  cancel-in-progress: false    # Never cancel a live mainnet deploy
+
+# ─── Jobs ─────────────────────────────────────────────────────────────────────
+
+jobs:
+  # ── Step 1: Require human review ──────────────────────────────────────────
+  await-approval:
+    name: Await deployment approval
+    runs-on: ubuntu-latest
+    # "contract-deploy" environment must have 2 required reviewers + 1-hour wait
+    environment: contract-deploy
+    steps:
+      - name: Deployment approved
+        run: |
+          echo "Deployment of MeridianRouter to ${{ inputs.chain }} approved"
+          echo "Safe TX: ${{ inputs.safe_tx_hash }}"
+          echo "Dry run: ${{ inputs.dry_run }}"
+
+  # ── Step 2: Verify multisig approval on-chain ─────────────────────────────
+  verify-multisig:
+    name: Verify Gnosis Safe approval
+    needs: await-approval
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Safe TX is confirmed
+        env:
+          SAFE_TX_HASH: ${{ inputs.safe_tx_hash }}
+          SAFE_API_BASE: ${{ inputs.chain == 'ethereum' && 'https://safe-transaction-mainnet.safe.global' || inputs.chain == 'base' && 'https://safe-transaction-base.safe.global' || inputs.chain == 'arbitrum' && 'https://safe-transaction-arbitrum.safe.global' || 'https://safe-transaction-mainnet.safe.global' }}
+        run: |
+          if [[ ! "$SAFE_TX_HASH" =~ ^0x[0-9a-fA-F]{64}$ ]]; then
+            echo "ERROR: safe_tx_hash is not a valid 32-byte hex hash"
+            exit 1
+          fi
+
+          RESPONSE=$(curl -sf \
+            "$SAFE_API_BASE/api/v1/multisig-transactions/$SAFE_TX_HASH/" \
+            -H "Accept: application/json" 2>&1) || {
+              echo "ERROR: Could not reach Safe transaction service"
+              exit 1
+            }
+
+          IS_EXECUTED=$(echo "$RESPONSE" | jq -r '.isExecuted // false')
+          CONFIRMATIONS=$(echo "$RESPONSE" | jq -r '.confirmationsRequired // 0')
+          CONFIRMATION_COUNT=$(echo "$RESPONSE" | jq -r '(.confirmations | length) // 0')
+
+          echo "Safe TX executed:      $IS_EXECUTED"
+          echo "Required confirmations: $CONFIRMATIONS"
+          echo "Actual confirmations:   $CONFIRMATION_COUNT"
+
+          if [[ "$IS_EXECUTED" != "true" ]]; then
+            echo "ERROR: Safe TX $SAFE_TX_HASH has not been executed on-chain"
+            echo "Complete the multisig signing ceremony before deploying."
+            exit 1
+          fi
+
+          echo "Multisig verification passed — Safe TX is confirmed on-chain"
+
+  # ── Step 3: Deploy ─────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy MeridianRouter → ${{ inputs.chain }}
+    needs: verify-multisig
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Build contracts
+        run: forge build
+
+      - name: Run unit tests (safety check before mainnet broadcast)
+        run: forge test --no-match-test Fork -v
+
+      # ── Ethereum ───────────────────────────────────────────────────────────
+      - name: Deploy → Ethereum mainnet
+        if: inputs.chain == 'ethereum'
+        run: |
+          BROADCAST_FLAG=${{ inputs.dry_run == 'false' && '--broadcast' || '' }}
+          VERIFY_FLAG=${{ inputs.verify == 'true' && '--verify --etherscan-api-key $ETHERSCAN_API_KEY' || '' }}
+          forge script script/Deploy.s.sol \
+            --rpc-url $ETH_RPC_URL \
+            $BROADCAST_FLAG $VERIFY_FLAG \
+            -vvv
+        env:
+          PRIVATE_KEY:        ${{ secrets.MAINNET_DEPLOYER_PK }}
+          ETH_RPC_URL:        ${{ secrets.ETH_MAINNET_RPC_URL }}
+          ETHERSCAN_API_KEY:  ${{ secrets.ETHERSCAN_API_KEY }}
+          RELAYER_ADDRESS:    ${{ secrets.MAINNET_RELAYER_ADDRESS }}
+          TREASURY_ADDRESS:   ${{ secrets.MAINNET_TREASURY_ADDRESS }}
+          USDC_ADDRESS:       ${{ secrets.USDC_ETHEREUM }}
+
+      # ── Base ───────────────────────────────────────────────────────────────
+      - name: Deploy → Base mainnet
+        if: inputs.chain == 'base'
+        run: |
+          BROADCAST_FLAG=${{ inputs.dry_run == 'false' && '--broadcast' || '' }}
+          VERIFY_FLAG=${{ inputs.verify == 'true' && '--verify --etherscan-api-key $BASESCAN_API_KEY' || '' }}
+          forge script script/DeployBase.s.sol \
+            --rpc-url $BASE_RPC_URL \
+            $BROADCAST_FLAG $VERIFY_FLAG \
+            -vvv
+        env:
+          PRIVATE_KEY:       ${{ secrets.MAINNET_DEPLOYER_PK }}
+          BASE_RPC_URL:      ${{ secrets.BASE_MAINNET_RPC_URL }}
+          BASESCAN_API_KEY:  ${{ secrets.BASESCAN_API_KEY }}
+          RELAYER_ADDRESS:   ${{ secrets.MAINNET_RELAYER_ADDRESS }}
+          TREASURY_ADDRESS:  ${{ secrets.MAINNET_TREASURY_ADDRESS }}
+          USDC_ADDRESS:      ${{ secrets.USDC_BASE }}
+
+      # ── Arbitrum ───────────────────────────────────────────────────────────
+      - name: Deploy → Arbitrum mainnet
+        if: inputs.chain == 'arbitrum'
+        run: |
+          BROADCAST_FLAG=${{ inputs.dry_run == 'false' && '--broadcast' || '' }}
+          VERIFY_FLAG=${{ inputs.verify == 'true' && '--verify --etherscan-api-key $ARBISCAN_API_KEY' || '' }}
+          forge script script/Deploy.s.sol \
+            --rpc-url $ARB_RPC_URL \
+            $BROADCAST_FLAG $VERIFY_FLAG \
+            -vvv
+        env:
+          PRIVATE_KEY:       ${{ secrets.MAINNET_DEPLOYER_PK }}
+          ARB_RPC_URL:       ${{ secrets.ARB_MAINNET_RPC_URL }}
+          ARBISCAN_API_KEY:  ${{ secrets.ARBISCAN_API_KEY }}
+          RELAYER_ADDRESS:   ${{ secrets.MAINNET_RELAYER_ADDRESS }}
+          TREASURY_ADDRESS:  ${{ secrets.MAINNET_TREASURY_ADDRESS }}
+          USDC_ADDRESS:      ${{ secrets.USDC_ARBITRUM }}
+
+      # ── BNB Chain ──────────────────────────────────────────────────────────
+      - name: Deploy → BNB Chain mainnet
+        if: inputs.chain == 'bnb'
+        run: |
+          BROADCAST_FLAG=${{ inputs.dry_run == 'false' && '--broadcast' || '' }}
+          VERIFY_FLAG=${{ inputs.verify == 'true' && '--verify --etherscan-api-key $BSCSCAN_API_KEY' || '' }}
+          forge script script/Deploy.s.sol \
+            --rpc-url $BNB_RPC_URL \
+            $BROADCAST_FLAG $VERIFY_FLAG \
+            -vvv
+        env:
+          PRIVATE_KEY:      ${{ secrets.MAINNET_DEPLOYER_PK }}
+          BNB_RPC_URL:      ${{ secrets.BNB_MAINNET_RPC_URL }}
+          BSCSCAN_API_KEY:  ${{ secrets.BSCSCAN_API_KEY }}
+          RELAYER_ADDRESS:  ${{ secrets.MAINNET_RELAYER_ADDRESS }}
+          TREASURY_ADDRESS: ${{ secrets.MAINNET_TREASURY_ADDRESS }}
+          USDC_ADDRESS:     ${{ secrets.USDC_BNB }}
+
+      # ── Polygon ────────────────────────────────────────────────────────────
+      - name: Deploy → Polygon mainnet
+        if: inputs.chain == 'polygon'
+        run: |
+          BROADCAST_FLAG=${{ inputs.dry_run == 'false' && '--broadcast' || '' }}
+          VERIFY_FLAG=${{ inputs.verify == 'true' && '--verify --etherscan-api-key $POLYGONSCAN_API_KEY' || '' }}
+          forge script script/Deploy.s.sol \
+            --rpc-url $POLYGON_RPC_URL \
+            $BROADCAST_FLAG $VERIFY_FLAG \
+            -vvv
+        env:
+          PRIVATE_KEY:           ${{ secrets.MAINNET_DEPLOYER_PK }}
+          POLYGON_RPC_URL:       ${{ secrets.POLYGON_MAINNET_RPC_URL }}
+          POLYGONSCAN_API_KEY:   ${{ secrets.POLYGONSCAN_API_KEY }}
+          RELAYER_ADDRESS:       ${{ secrets.MAINNET_RELAYER_ADDRESS }}
+          TREASURY_ADDRESS:      ${{ secrets.MAINNET_TREASURY_ADDRESS }}
+          USDC_ADDRESS:          ${{ secrets.USDC_POLYGON }}
+
+      # ── Post-deploy: capture addresses + upload artifacts ─────────────────
+      - name: Capture deployed addresses
+        if: inputs.dry_run == 'false'
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Chain:** ${{ inputs.chain }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Safe TX:** \`${{ inputs.safe_tx_hash }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          find broadcast -name 'run-latest.json' | while read f; do
+            CHAIN=$(basename "$(dirname "$(dirname "$f")")")
+            ADDR=$(jq -r '.transactions[0].contractAddress // "not found"' "$f")
+            TX=$(jq -r '.transactions[0].hash // "not found"' "$f")
+            echo "| $CHAIN | \`$ADDR\` | \`$TX\` |" >> $GITHUB_STEP_SUMMARY
+          done
+
+      - name: Upload broadcast artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainnet-broadcast-${{ inputs.chain }}-${{ github.run_number }}
+          path: contracts/broadcast/
+          retention-days: 365    # Keep mainnet deploys for 1 year
+
+  # ── Step 4: Post-deploy notification ──────────────────────────────────────
+  notify:
+    name: Notify team
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Slack notification
+        if: ${{ secrets.SLACK_WEBHOOK != '' }}
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "${{ needs.deploy.result == 'success' && ':white_check_mark:' || ':red_circle:' }} *MeridianRouter mainnet deploy — ${{ inputs.chain }}*\nResult: ${{ needs.deploy.result }}\nSafe TX: `${{ inputs.safe_tx_hash }}`\nDry run: ${{ inputs.dry_run }}\nTriggered by: ${{ github.actor }}\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+            }
+        env:
+          SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
