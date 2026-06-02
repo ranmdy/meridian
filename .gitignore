@@ -17,3 +17,10 @@ coverage/
 *.log
 .DS_Store
 graphify-out/
+
+# Playwright test artifacts
+frontend/playwright-report/
+frontend/test-results/
+
+# Project zip archives
+*.zip
