@@ -4,6 +4,28 @@
 
 ---
 
+## Deployed Contracts
+
+### Sepolia Testnet (chain 11155111)
+
+| Contract | Address | Explorer |
+|----------|---------|---------|
+| MeridianRouter | `0x9D77c4Af9e76C419672cd25d0C73DDD75d0235D3` | [Etherscan](https://sepolia.etherscan.io/address/0x9D77c4Af9e76C419672cd25d0C73DDD75d0235D3) |
+| MeridianStrategyRegistry | `0xe14c81d2E11Fd5278A040D1B58406Ea83cb7F514` | [Etherscan](https://sepolia.etherscan.io/address/0xe14c81d2E11Fd5278A040D1B58406Ea83cb7F514) |
+| MeridianVault (USDC) | `0xC8a0Fb6d6d4D513ddA0fEBf3E4b69bde132c8B9C` | [Etherscan](https://sepolia.etherscan.io/address/0xC8a0Fb6d6d4D513ddA0fEBf3E4b69bde132c8B9C) |
+
+### Base Sepolia Testnet (chain 84532)
+
+| Contract | Address | Explorer |
+|----------|---------|---------|
+| MeridianRouter | `0x4a822882689941B2478Fd548AE3a1559Ab000b06` | [Basescan](https://sepolia.basescan.org/address/0x4a822882689941B2478Fd548AE3a1559Ab000b06) |
+| MeridianStrategyRegistry | `0x9D77c4Af9e76C419672cd25d0C73DDD75d0235D3` | [Basescan](https://sepolia.basescan.org/address/0x9D77c4Af9e76C419672cd25d0C73DDD75d0235D3) |
+| MeridianVault (USDC) | `0x7CCC7B386573c4b988446482cb9aB3609c14f8Aa` | [Basescan](https://sepolia.basescan.org/address/0x7CCC7B386573c4b988446482cb9aB3609c14f8Aa) |
+
+> Mainnet deployment pending security audit.
+
+---
+
 ## Table of Contents
 
 1. [Overview](#overview)
@@ -395,8 +417,34 @@ This design decision means:
 ### Full On-Chain Transparency
 Every hop emits events. Every transaction is visible on the relevant chain explorer. Meridian provides a unified view but adds no opacity — the full execution path is always independently verifiable.
 
+### Static Analysis (Slither) — Completed June 1, 2026
+Ran Slither against `MeridianRouter.sol` (101 detectors, 19 contracts analyzed).
+
+| Finding | Severity | Status |
+|---------|----------|--------|
+| CEI violation — fee transfer before state write | High | **Fixed** — state written before `_transferFee` |
+| `reentrancy-eth` / `reentrancy-benign` in `executeStrategy` | Medium | **Suppressed** — `nonReentrant` + `approvedProtocols` allowlist; mid-loop state updates are intentional (per-step progress tracking for `emergencyExit`) |
+| `arbitrary-send-eth` in `_transferFee` | Low | **Suppressed** — treasury is owner-controlled; intentional fee routing |
+| `calls-loop` in adapter stubs | Low | **Suppressed** — inherent to multi-step execution; all calls gated by `approvedProtocols` |
+| `unused-return` in `_verifyDestination` | Low | **Suppressed** — third `ECDSA.tryRecover` return value intentionally discarded |
+| OZ library findings (pragma, assembly, too-many-digits) | Informational | Out of scope |
+
+Result: 86 → 73 findings (13 suppressed). All 50 unit tests + 6 fork tests + 28 E2E tests + 17 protocol-verification tests pass.
+
+### Mythril Symbolic Execution — Completed June 1, 2026
+Ran Mythril v0.24.8 (`myth analyze`) with 120-second execution timeout against `MeridianRouter.sol`.
+
+**Result: "The analysis was completed successfully. No issues were detected."**
+
+Zero findings — no integer overflows, no exploitable reentrancy paths, no dangerous delegatecall, no unchecked ETH sends.
+
 ### Smart Contract Audits
 Before mainnet launch, all router contracts must pass audits from at minimum two firms. Candidates: Trail of Bits, Spearbit, Sherlock, Code4rena contest.
+
+**Audit package prepared** (`audit-package/`):
+- `AUDIT-OVERVIEW.md` — contracts in scope, security properties, data structures, events, known suppressions, test coverage
+- `ARCHITECTURE.md` — system flow, component map, trust model, state machine, fee flow
+- `THREAT-MODEL.md` — 12 attack vectors with mitigations, out-of-scope risks
 
 ### Bug Bounty
 Post-launch bug bounty program via Immunefi. Minimum $500k pool for critical vulnerabilities.
@@ -452,7 +500,7 @@ Compatible with: Koinly, CoinTracker, TaxBit, Coinpanda
 - $1B/month volume = $800,000/month
 
 **2. Strategy Marketplace**
-Strategy creators earn 0.02% of volume routed through their strategy. Meridian takes 0.03% from marketplace strategies (split with creator).
+Strategy creators earn 0.02% of volume routed through their strategy. Meridian takes 0.03% from marketplace strategies (split with creator). Fee routing is fully on-chain: `MeridianRouter._transferFee()` splits the 5 bps fee and emits `FeeDistributed(strategyId, treasury, treasuryFee, creator, creatorFee)` per execution.
 
 **3. Pro Subscription ($29/month)**
 - Unlimited saved strategies
@@ -505,10 +553,18 @@ Top strategies minted as NFTs. NFT holder earns creator fee perpetually. Tradeab
 - Pyth Network (high-frequency price data)
 
 ### Infrastructure
-- AWS / Vercel (hosting)
+- Docker + docker-compose (staging stack: Postgres 16, Redis 7, Fastify backend)
+- Vercel (frontend — `frontend/vercel.json` with CSP headers + API proxy rewrite)
+- AWS (production backend hosting)
 - Alchemy / QuickNode (RPC providers)
 - Tenderly (contract simulation + monitoring)
 - Datadog (observability)
+
+### Testing
+- Foundry (Solidity unit + fork tests — 50 unit, 6 fork)
+- Playwright (E2E browser tests — 28 tests)
+- Vitest (backend unit + integration tests)
+- k6 (load + performance tests — `load-tests/`)
 
 ### Protocol SDKs Integrated
 - Stargate SDK
