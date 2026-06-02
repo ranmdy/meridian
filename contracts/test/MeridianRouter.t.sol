@@ -117,7 +117,8 @@ contract MeridianRouterTest is Test {
             steps: steps,
             destinationWallet: dest,
             destinationSignature: sig,
-            deadline: block.timestamp + 1 hours
+            deadline: block.timestamp + 1 hours,
+            creator: address(0)
         });
     }
 
@@ -209,7 +210,8 @@ contract MeridianRouterTest is Test {
             steps: steps,
             destinationWallet: destination,
             destinationSignature: sig,
-            deadline: expiredDeadline
+            deadline: expiredDeadline,
+            creator: address(0)
         });
 
         vm.startPrank(user);
@@ -243,7 +245,8 @@ contract MeridianRouterTest is Test {
             steps: steps,
             destinationWallet: destination,
             destinationSignature: sig,
-            deadline: deadline
+            deadline: deadline,
+            creator: address(0)
         });
 
         vm.startPrank(user);
@@ -283,7 +286,8 @@ contract MeridianRouterTest is Test {
             steps: steps,
             destinationWallet: destination,
             destinationSignature: sig,
-            deadline: deadline
+            deadline: deadline,
+            creator: address(0)
         });
 
         // User submits and strategy pauses at bridge
@@ -301,7 +305,8 @@ contract MeridianRouterTest is Test {
             steps: steps,
             destinationWallet: destination,
             destinationSignature: sig2,
-            deadline: deadline2
+            deadline: deadline2,
+            creator: address(0)
         });
         vm.startPrank(user2);
         usdc.approve(address(router), 5000e6);
@@ -353,7 +358,8 @@ contract MeridianRouterTest is Test {
             steps: steps,
             destinationWallet: destination,
             destinationSignature: sig,
-            deadline: deadline
+            deadline: deadline,
+            creator: address(0)
         });
 
         vm.startPrank(user);
@@ -384,7 +390,8 @@ contract MeridianRouterTest is Test {
             steps: steps,
             destinationWallet: destination,
             destinationSignature: sig,
-            deadline: deadline
+            deadline: deadline,
+            creator: address(0)
         });
 
         vm.startPrank(user);
@@ -419,7 +426,8 @@ contract MeridianRouterTest is Test {
             steps: steps,
             destinationWallet: destination,
             destinationSignature: sig1,
-            deadline: deadline
+            deadline: deadline,
+            creator: address(0)
         });
 
         vm.startPrank(user);
@@ -435,7 +443,8 @@ contract MeridianRouterTest is Test {
             steps: steps,
             destinationWallet: destination,
             destinationSignature: sig2,
-            deadline: deadline
+            deadline: deadline,
+            creator: address(0)
         });
         router.executeStrategy(strat2);
         assertEq(router.userNonces(user), 2); // nonce advanced to 2
@@ -478,7 +487,8 @@ contract MeridianRouterTest is Test {
             steps: steps,
             destinationWallet: destination,
             destinationSignature: sig,
-            deadline: deadline
+            deadline: deadline,
+            creator: address(0)
         });
 
         vm.startPrank(user);
@@ -512,6 +522,79 @@ contract MeridianRouterTest is Test {
         uint256 amount = 10_000e6;
         uint256 expectedFee = (amount * 8) / 10_000; // 8 USDC
         assertEq(expectedFee, 8e6);
+    }
+
+    /// @dev Marketplace strategy: 2 bps to creator + 3 bps to treasury = 5 bps total.
+    function test_marketplaceCreatorFeeRouting() public {
+        address creator = makeAddr("creator");
+        uint256 amount = 10_000e6;
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signDestination(destination, DEST_PK, user, deadline);
+
+        IMeridianRouter.Step[] memory steps = new IMeridianRouter.Step[](1);
+        steps[0] = IMeridianRouter.Step({
+            stepType: IMeridianRouter.StepType.SETTLE,
+            protocol: address(0),
+            params: "",
+            minOutput: 0,
+            outputAsset: address(0)
+        });
+
+        IMeridianRouter.Strategy memory strat = IMeridianRouter.Strategy({
+            sourceAsset: address(usdc),
+            sourceAmount: amount,
+            steps: steps,
+            destinationWallet: destination,
+            destinationSignature: sig,
+            deadline: deadline,
+            creator: creator
+        });
+
+        uint256 tBefore = usdc.balanceOf(treasury);
+        uint256 cBefore = usdc.balanceOf(creator);
+
+        vm.startPrank(user);
+        usdc.approve(address(router), amount);
+        router.executeStrategy(strat);
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(treasury) - tBefore, 3e6, "treasury 3 bps");
+        assertEq(usdc.balanceOf(creator)  - cBefore,  2e6, "creator 2 bps");
+    }
+
+    /// @dev Direct strategy (creator == address(0)): full 8 bps to treasury, 0 to creator.
+    function test_directFeeRoutingNoCreator() public {
+        uint256 amount = 10_000e6;
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signDestination(destination, DEST_PK, user, deadline);
+
+        IMeridianRouter.Step[] memory steps = new IMeridianRouter.Step[](1);
+        steps[0] = IMeridianRouter.Step({
+            stepType: IMeridianRouter.StepType.SETTLE,
+            protocol: address(0),
+            params: "",
+            minOutput: 0,
+            outputAsset: address(0)
+        });
+
+        IMeridianRouter.Strategy memory strat = IMeridianRouter.Strategy({
+            sourceAsset: address(usdc),
+            sourceAmount: amount,
+            steps: steps,
+            destinationWallet: destination,
+            destinationSignature: sig,
+            deadline: deadline,
+            creator: address(0)
+        });
+
+        uint256 tBefore = usdc.balanceOf(treasury);
+
+        vm.startPrank(user);
+        usdc.approve(address(router), amount);
+        router.executeStrategy(strat);
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(treasury) - tBefore, 8e6, "treasury 8 bps");
     }
 
     // ─── Admin ────────────────────────────────────────────────────────────────

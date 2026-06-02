@@ -1,0 +1,154 @@
+{
+  "_comment": "Canonical deployment manifest — updated after every deploy. Format: { chain -> { contract -> { address, deployer, blockNumber, txHash, deployedAt } } }",
+  "testnet": {
+    "sepolia": {
+      "chainId": 11155111,
+      "network": "Ethereum Sepolia",
+      "explorer": "https://sepolia.etherscan.io",
+      "contracts": {
+        "MeridianRouter": {
+          "address": "0x9D77c4Af9e76C419672cd25d0C73DDD75d0235D3",
+          "deployer": "0x0000000000000000000000000000000000000000",
+          "blockNumber": 10970464,
+          "txHash": "",
+          "deployedAt": "2026-06-01",
+          "verified": false
+        },
+        "MeridianStrategyRegistry": {
+          "address": "0xe14c81d2E11Fd5278A040D1B58406Ea83cb7F514",
+          "deployer": "0x0000000000000000000000000000000000000000",
+          "blockNumber": 10970465,
+          "txHash": "",
+          "deployedAt": "2026-06-01",
+          "verified": false
+        },
+        "MeridianVault": {
+          "address": "0xC8a0Fb6d6d4D513ddA0fEBf3E4b69bde132c8B9C",
+          "deployer": "0x0000000000000000000000000000000000000000",
+          "blockNumber": 10970466,
+          "txHash": "",
+          "deployedAt": "2026-06-01",
+          "verified": false
+        }
+      }
+    },
+    "baseSepolia": {
+      "chainId": 84532,
+      "network": "Base Sepolia",
+      "explorer": "https://sepolia.basescan.org",
+      "contracts": {
+        "MeridianRouter": {
+          "address": "0x4a822882689941B2478Fd548AE3a1559Ab000b06",
+          "deployer": "0x0000000000000000000000000000000000000000",
+          "blockNumber": 42291052,
+          "txHash": "",
+          "deployedAt": "2026-06-01",
+          "verified": false
+        },
+        "MeridianStrategyRegistry": {
+          "address": "0x9D77c4Af9e76C419672cd25d0C73DDD75d0235D3",
+          "deployer": "0x0000000000000000000000000000000000000000",
+          "blockNumber": 42291053,
+          "txHash": "",
+          "deployedAt": "2026-06-01",
+          "verified": false
+        },
+        "MeridianVault": {
+          "address": "0x7CCC7B386573c4b988446482cb9aB3609c14f8Aa",
+          "deployer": "0x0000000000000000000000000000000000000000",
+          "blockNumber": 42291054,
+          "txHash": "",
+          "deployedAt": "2026-06-01",
+          "verified": false
+        }
+      }
+    }
+  },
+  "mainnet": {
+    "ethereum": {
+      "chainId": 1,
+      "network": "Ethereum Mainnet",
+      "explorer": "https://etherscan.io",
+      "contracts": {
+        "MeridianRouter": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false },
+        "MeridianStrategyRegistry": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false },
+        "MeridianVault": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false },
+        "MeridianStrategyNFT": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false }
+      }
+    },
+    "base": {
+      "chainId": 8453,
+      "network": "Base Mainnet",
+      "explorer": "https://basescan.org",
+      "contracts": {
+        "MeridianRouter": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false },
+        "MeridianStrategyRegistry": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false },
+        "MeridianVault": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false }
+      }
+    },
+    "arbitrum": {
+      "chainId": 42161,
+      "network": "Arbitrum One",
+      "explorer": "https://arbiscan.io",
+      "contracts": {
+        "MeridianRouter": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false },
+        "MeridianStrategyRegistry": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false },
+        "MeridianVault": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false }
+      }
+    },
+    "bnb": {
+      "chainId": 56,
+      "network": "BNB Chain",
+      "explorer": "https://bscscan.com",
+      "contracts": {
+        "MeridianRouter": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false },
+        "MeridianStrategyRegistry": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false },
+        "MeridianVault": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false }
+      }
+    },
+    "polygon": {
+      "chainId": 137,
+      "network": "Polygon",
+      "explorer": "https://polygonscan.com",
+      "contracts": {
+        "MeridianRouter": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false },
+        "MeridianStrategyRegistry": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false },
+        "MeridianVault": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false }
+      }
+    },
+    "optimism": {
+      "chainId": 10,
+      "network": "Optimism",
+      "explorer": "https://optimistic.etherscan.io",
+      "contracts": {
+        "MeridianRouter": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false },
+        "MeridianStrategyRegistry": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false },
+        "MeridianVault": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false }
+      }
+    },
+    "avalanche": {
+      "chainId": 43114,
+      "network": "Avalanche C-Chain",
+      "explorer": "https://snowtrace.io",
+      "contracts": {
+        "MeridianRouter": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false }
+      }
+    },
+    "scroll": {
+      "chainId": 534352,
+      "network": "Scroll",
+      "explorer": "https://scrollscan.com",
+      "contracts": {
+        "MeridianRouter": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false }
+      }
+    },
+    "zkSync": {
+      "chainId": 324,
+      "network": "zkSync Era",
+      "explorer": "https://explorer.zksync.io",
+      "contracts": {
+        "MeridianRouter": { "address": "", "deployer": "", "blockNumber": 0, "txHash": "", "deployedAt": "", "verified": false }
+      }
+    }
+  }
+}

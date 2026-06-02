@@ -41,6 +41,9 @@ interface IMeridianRouter {
     /// @param destinationSignature EIP-191 signature from destinationWallet proving ownership,
     ///                             bound to the initiating user (msg.sender) and this deadline.
     /// @param deadline             Unix timestamp after which the strategy auto-reverts.
+    /// @param creator              Address of the marketplace strategy creator.
+    ///                             address(0) = direct strategy (full 8 bps to treasury).
+    ///                             Non-zero = marketplace template: 2 bps to creator, 3 bps to treasury.
     struct Strategy {
         address sourceAsset;
         uint256 sourceAmount;
@@ -48,6 +51,7 @@ interface IMeridianRouter {
         address destinationWallet;
         bytes destinationSignature;
         uint256 deadline;
+        address creator;
     }
 
     // ─── Events ───────────────────────────────────────────────────────────────
@@ -91,6 +95,17 @@ interface IMeridianRouter {
         bytes32 indexed strategyId,
         address indexed source,
         uint256 amountReturned
+    );
+
+    /// @notice Emitted when execution fees are distributed.
+    ///         For direct strategies: treasuryFee = full 8 bps, creator = address(0), creatorFee = 0.
+    ///         For marketplace strategies: treasuryFee = 3 bps, creator != address(0), creatorFee = 2 bps.
+    event FeeDistributed(
+        bytes32 indexed strategyId,
+        address indexed treasury,
+        uint256 treasuryFee,
+        address creator,
+        uint256 creatorFee
     );
 
     /// @notice Emitted when the authorized relayer address is updated.

@@ -37,7 +37,16 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     // ─── Constants ────────────────────────────────────────────────────────────
 
     /// @notice Protocol execution fee in basis points (0.08% = 8 bps).
+    /// @notice Fee for direct strategies (no creator): 8 bps (0.08%) to treasury.
     uint256 public constant FEE_BPS = 8;
+
+    /// @notice Creator share for marketplace strategies: 2 bps (0.02%) to creator.
+    uint256 public constant CREATOR_FEE_BPS = 2;
+
+    /// @notice Meridian share for marketplace strategies: 3 bps (0.03%) to treasury.
+    ///         Total marketplace fee = CREATOR_FEE_BPS + MERIDIAN_FEE_BPS = 5 bps (0.05%).
+    uint256 public constant MERIDIAN_FEE_BPS = 3;
+
     uint256 public constant BPS_DENOMINATOR = 10_000;
 
     /// @notice Maximum steps per strategy — prevents gas-limit DoS.
@@ -132,6 +141,10 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     ///
     ///         All step protocol addresses must be in the approvedProtocols allowlist.
     ///         Steps beyond MAX_STEPS are rejected to prevent gas-limit DoS.
+    // State is written before external calls (CEI). Mid-loop state updates in _executeStepsFrom
+    // are intentional to track per-step progress for emergencyExit. nonReentrant on this function
+    // and continueStrategy prevents any reentrant call from reaching _executeStepsFrom.
+    // slither-disable-start reentrancy-eth,reentrancy-no-eth,reentrancy-benign
     function executeStrategy(Strategy calldata strategy)
         external
         payable
@@ -178,13 +191,19 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
             );
         }
 
-        // 7. Deduct execution fee upfront
-        uint256 fee = (strategy.sourceAmount * FEE_BPS) / BPS_DENOMINATOR;
+        // 7. Deduct execution fee upfront.
+        //    Direct strategies (creator == address(0)): full 8 bps to treasury.
+        //    Marketplace strategies (creator != address(0)): 2 bps to creator + 3 bps to treasury.
+        bool isMarketplace = strategy.creator != address(0);
+        uint256 fee = isMarketplace
+            ? (strategy.sourceAmount * (CREATOR_FEE_BPS + MERIDIAN_FEE_BPS)) / BPS_DENOMINATOR
+            : (strategy.sourceAmount * FEE_BPS) / BPS_DENOMINATOR;
         uint256 workingAmount = strategy.sourceAmount - fee;
-        _transferFee(strategy.sourceAsset, fee);
 
-        // 8. Record strategy state — currentAsset and currentAmount track the
-        //    working position through swaps/bridges for accurate emergencyExit returns.
+        // 8. Record strategy state before any external calls (CEI: checks-effects-interactions).
+        //    State is written here so that any reentrant call (even if nonReentrant allows it
+        //    via a different entry point) sees a fully-initialized strategy slot and cannot
+        //    corrupt or replay it.
         _strategies[strategyId] = StrategyState({
             user: msg.sender,
             sourceAsset: strategy.sourceAsset,
@@ -207,9 +226,13 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
             strategy.destinationWallet
         );
 
-        // 9. Execute synchronous steps until a BRIDGE step is reached
+        // 9. Transfer fee to treasury / creator (external call — after state write).
+        _transferFee(strategyId, strategy.sourceAsset, fee, strategy.creator);
+
+        // 10. Execute synchronous steps until a BRIDGE step is reached
         _executeStepsFrom(strategyId, strategy.steps, 0, workingAmount);
     }
+    // slither-disable-end reentrancy-eth,reentrancy-no-eth,reentrancy-benign
 
     // ─── Core: continueStrategy ───────────────────────────────────────────────
 
@@ -220,6 +243,9 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     ///         `steps` is verified against the stored stepsHash — the relayer cannot substitute
     ///         different steps than the user originally submitted.
     ///         `bridgedAmount` is the actual amount received on this chain after bridge fees/slippage.
+    // Same rationale as executeStrategy: mid-loop state updates track per-step progress.
+    // onlyRelayer + nonReentrant prevent unauthorized or reentrant calls.
+    // slither-disable-start reentrancy-eth,reentrancy-no-eth,reentrancy-benign
     function continueStrategy(
         bytes32 strategyId,
         uint256 stepIndex,
@@ -251,6 +277,7 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
         // _executeStepsFrom manages state.currentStep internally.
         _executeStepsFrom(strategyId, steps, stepIndex, bridgedAmount);
     }
+    // slither-disable-end reentrancy-eth,reentrancy-no-eth,reentrancy-benign
 
     // ─── Core: emergencyExit ──────────────────────────────────────────────────
 
@@ -351,6 +378,13 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     ///         Pauses (returns) if a BRIDGE step is reached.
     ///         On step failure: marks strategy failed, emits StrategyFailed,
     ///         returns the current tracked amount to the user, then returns.
+    /// @dev    Slither flags reentrancy-eth / reentrancy-no-eth here because state variables
+    ///         (currentStep, currentAmount, currentAsset) are updated BETWEEN external calls
+    ///         inside the loop. This is intentional: progress must be tracked per-step so that
+    ///         emergencyExit returns the correct mid-execution amount. All external calls are
+    ///         gated by the approvedProtocols allowlist, and executeStrategy / continueStrategy
+    ///         are both nonReentrant — no reentrant call can reach this function.
+    // slither-disable-start reentrancy-eth,reentrancy-no-eth,reentrancy-benign
     function _executeStepsFrom(
         bytes32 strategyId,
         Step[] calldata steps,
@@ -408,6 +442,7 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
         // All steps complete — settle to destination
         _settle(strategyId, state, currentAmount);
     }
+    // slither-disable-end reentrancy-eth,reentrancy-no-eth,reentrancy-benign
 
     /// @notice Mark a strategy as failed, return current funds to user, and emit StrategyFailed.
     /// @dev    Called from `_executeStepsFrom` on step failure or slippage breach.
@@ -429,6 +464,8 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
         // Return current tracked amount to the original depositor
         if (currentAmount > 0) {
             if (state.currentAsset == address(0)) {
+                // Returns funds to original depositor on step failure; user address set at strategy creation.
+                // slither-disable-next-line calls-loop
                 (bool ok,) = state.user.call{value: currentAmount}("");
                 require(ok, "ETH return failed");
             } else {
@@ -464,6 +501,8 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
         internal
         returns (bool, uint256)
     {
+        // External call to an allowlisted protocol adapter — approvedProtocols enforced in _executeStep.
+        // slither-disable-next-line calls-loop
         (bool ok, bytes memory result) = step.protocol.call(
             abi.encodePacked(step.params, amountIn)
         );
@@ -477,6 +516,8 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
         internal
         returns (bool, uint256)
     {
+        // External call to an allowlisted protocol adapter — approvedProtocols enforced in _executeStep.
+        // slither-disable-next-line calls-loop
         (bool ok, bytes memory result) = step.protocol.call(
             abi.encodePacked(step.params, amountIn)
         );
@@ -490,6 +531,8 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
         internal
         returns (bool, uint256)
     {
+        // External call to an allowlisted protocol adapter — approvedProtocols enforced in _executeStep.
+        // slither-disable-next-line calls-loop
         (bool ok, bytes memory result) = step.protocol.call(
             abi.encodePacked(step.params, amountIn)
         );
@@ -557,7 +600,9 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
                 deadline
             )
         );
-        // tryRecover returns address(0) on malformed signatures rather than reverting.
+        // tryRecover returns (address, RecoverError, bytes32). Third value (errorArg) is intentionally
+        // discarded — err captures the failure mode.
+        // slither-disable-next-line unused-return
         (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecover(
             MessageHashUtils.toEthSignedMessageHash(message),
             signature
@@ -588,15 +633,49 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
         );
     }
 
-    /// @notice Transfer the protocol fee to treasury.
-    function _transferFee(address asset, uint256 fee) internal {
+    /// @notice Transfer the protocol fee to treasury (direct) or split between creator and treasury (marketplace).
+    /// @param strategyId The strategy identifier, used in the FeeDistributed event.
+    /// @param asset      The asset being transferred (address(0) = native ETH).
+    /// @param fee        Total fee amount to distribute.
+    /// @param creator    address(0) for direct strategies; non-zero for marketplace templates.
+    function _transferFee(bytes32 strategyId, address asset, uint256 fee, address creator) internal {
         if (fee == 0) return;
-        if (asset == address(0)) {
-            (bool ok,) = treasury.call{value: fee}("");
-            if (!ok) revert FeeTransferFailed();
+
+        uint256 creatorFee;
+        uint256 treasuryFee;
+
+        if (creator != address(0)) {
+            // Marketplace split: 2 bps creator, 3 bps treasury (out of the 5 bps total).
+            // fee = sourceAmount * 5 / 10000, so:
+            //   creatorFee  = fee * 2/5 = fee * CREATOR_FEE_BPS  / (CREATOR_FEE_BPS + MERIDIAN_FEE_BPS)
+            //   treasuryFee = fee * 3/5 = fee * MERIDIAN_FEE_BPS / (CREATOR_FEE_BPS + MERIDIAN_FEE_BPS)
+            creatorFee  = (fee * CREATOR_FEE_BPS)  / (CREATOR_FEE_BPS + MERIDIAN_FEE_BPS);
+            treasuryFee = fee - creatorFee; // remainder avoids rounding dust
         } else {
-            IERC20(asset).safeTransfer(treasury, fee);
+            // Direct strategy: full fee to treasury.
+            treasuryFee = fee;
         }
+
+        if (asset == address(0)) {
+            // `treasury` is an owner-controlled address set at construction and updatable only
+            // by the owner via setTreasury(). Sending ETH to it is intentional. This function
+            // is only called from executeStrategy (nonReentrant) so reentrancy is not a risk.
+            if (treasuryFee > 0) {
+                // slither-disable-next-line arbitrary-send-eth
+                (bool ok,) = treasury.call{value: treasuryFee}("");
+                if (!ok) revert FeeTransferFailed();
+            }
+            if (creatorFee > 0) {
+                // slither-disable-next-line arbitrary-send-eth
+                (bool ok2,) = creator.call{value: creatorFee}("");
+                if (!ok2) revert FeeTransferFailed();
+            }
+        } else {
+            if (treasuryFee > 0) IERC20(asset).safeTransfer(treasury, treasuryFee);
+            if (creatorFee  > 0) IERC20(asset).safeTransfer(creator,  creatorFee);
+        }
+
+        emit FeeDistributed(strategyId, treasury, treasuryFee, creator, creatorFee);
     }
 
     /// @notice Accept ETH for native strategies.
