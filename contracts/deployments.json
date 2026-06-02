@@ -8,25 +8,25 @@
       "contracts": {
         "MeridianRouter": {
           "address": "0x9D77c4Af9e76C419672cd25d0C73DDD75d0235D3",
-          "deployer": "0x0000000000000000000000000000000000000000",
+          "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
           "blockNumber": 10970464,
-          "txHash": "",
+          "txHash": "0x2400a49edb83bd0c8fde82e8c3592d6b4a6c5995cfc65509d8eaba044b8f2b7d",
           "deployedAt": "2026-06-01",
           "verified": false
         },
         "MeridianStrategyRegistry": {
           "address": "0xe14c81d2E11Fd5278A040D1B58406Ea83cb7F514",
-          "deployer": "0x0000000000000000000000000000000000000000",
+          "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
           "blockNumber": 10970465,
-          "txHash": "",
+          "txHash": "0xeed2cafe1a215f909ffd4d624527d8d7bdcc46b354c82efb79b123ba66ad204c",
           "deployedAt": "2026-06-01",
           "verified": false
         },
         "MeridianVault": {
           "address": "0xC8a0Fb6d6d4D513ddA0fEBf3E4b69bde132c8B9C",
-          "deployer": "0x0000000000000000000000000000000000000000",
+          "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
           "blockNumber": 10970466,
-          "txHash": "",
+          "txHash": "0x63e67932cc004575288bab44d58dc554443e7374306970e728080e330d3e979f",
           "deployedAt": "2026-06-01",
           "verified": false
         }
@@ -39,25 +39,25 @@
       "contracts": {
         "MeridianRouter": {
           "address": "0x4a822882689941B2478Fd548AE3a1559Ab000b06",
-          "deployer": "0x0000000000000000000000000000000000000000",
+          "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
           "blockNumber": 42291052,
-          "txHash": "",
+          "txHash": "0x797abc18c7270224f113cb9ed69a22f0cfed77c3aef67b91843e3f8d3ae5146c",
           "deployedAt": "2026-06-01",
           "verified": false
         },
         "MeridianStrategyRegistry": {
           "address": "0x9D77c4Af9e76C419672cd25d0C73DDD75d0235D3",
-          "deployer": "0x0000000000000000000000000000000000000000",
+          "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
           "blockNumber": 42291053,
-          "txHash": "",
+          "txHash": "0xd451dea7145b34941b5d35cd2062802ad271a52974aa8bec334badd6c5aaf4b0",
           "deployedAt": "2026-06-01",
           "verified": false
         },
         "MeridianVault": {
           "address": "0x7CCC7B386573c4b988446482cb9aB3609c14f8Aa",
-          "deployer": "0x0000000000000000000000000000000000000000",
+          "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
           "blockNumber": 42291054,
-          "txHash": "",
+          "txHash": "0x6161ca3eea353270c3e9adf09a6483d51f3fc51d9f9c48ddf0c363ed0eaab3e1",
           "deployedAt": "2026-06-01",
           "verified": false
         }
