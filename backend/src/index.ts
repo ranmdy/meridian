@@ -22,6 +22,7 @@ import { apiKeyRoutes } from './api/routes/api-keys.js';
 import { templateRoutes } from './api/routes/templates.js';
 import { executionRegistry } from './services/execution-registry/index.js';
 import { api as apiMetrics, websocket as wsMetrics, anomaly, onchain as onchainMetrics, closeMetrics } from './services/metrics/index.js';
+import { slaMonitor } from './services/sla-monitor/index.js';
 import { closePool } from './db/index.js';
 import { runMigrations } from './db/migrate.js';
 import { monitoring } from './services/monitoring/index.js';
@@ -52,6 +53,7 @@ fastify.addHook('onResponse', (request, reply, done) => {
   const status = reply.statusCode;
   const elapsed = reply.elapsedTime;          // ms since request received
   apiMetrics.requestDone(route, method, status, elapsed);
+  slaMonitor.record(route, elapsed, status);
   done();
 });
 
@@ -124,6 +126,9 @@ fastify.get('/health', async () => ({
   graph: strategyEngine.graphStats(),
 }));
 
+// SLA stats endpoint
+fastify.get('/health/sla', async () => slaMonitor.stats());
+
 // ─── Startup ──────────────────────────────────────────────────────────────────
 
 const start = async () => {
@@ -183,6 +188,19 @@ const start = async () => {
       void monitoring.alert(
         `Relayer failure spike: ${(failureRate * 100).toFixed(0)}% of last ${samples} jobs failed`,
         { failureRate: failureRate.toFixed(3), windowSamples: samples },
+      );
+    });
+
+    // Wire SLA breach alerts: fire when quote p95 exceeds 2 s target
+    slaMonitor.onBreach((stats) => {
+      void monitoring.alert(
+        `SLA breach: quote p95 ${stats.quote.p95Ms} ms > ${stats.quote.slaTargetMs} ms target`,
+        {
+          p95Ms:          stats.quote.p95Ms,
+          complianceRate: stats.quote.complianceRate,
+          sampleCount:    stats.quote.count,
+          windowSec:      stats.windowSec,
+        },
       );
     });
 
