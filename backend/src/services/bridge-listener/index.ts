@@ -14,12 +14,17 @@
  * Phase 1: in-process event bus (Map of callbacks).
  * Phase 2: write to Redis stream so multiple workers can consume.
  *
- * Env vars (all optional; if missing the listener skips that chain):
- *   RPC_ETH, RPC_ARB, RPC_BASE, RPC_OPT, RPC_POLY, RPC_BNB, RPC_AVAX,
- *   RPC_SCROLL, RPC_ZKSYNC
+ * Transport selection (automatic via rpcTransport):
+ *   - wss:// or ws:// URL  → viem webSocket() transport  (real-time push, preferred)
+ *   - https:// URL         → viem http() transport        (polling fallback)
+ *   - No URL configured    → chain is silently skipped
+ *
+ * Env vars read via config (ETH_RPC_URL / ETH_RPC_URL_FALLBACK, etc.) — set in .env.
  */
 
-import { createPublicClient, http, type PublicClient, type Abi } from 'viem';
+import { createPublicClient, type PublicClient, type Abi } from 'viem';
+import { rpcTransport } from '../rpc-transport/index.js';
+import { config } from '../../config/index.js';
 import { mainnet, arbitrum, base, optimism, polygon, bsc, avalanche, scroll, zkSync } from 'viem/chains';
 import { EventEmitter } from 'node:events';
 
@@ -106,17 +111,20 @@ const STARGATE_ABI = [
 ] as const satisfies Abi;
 
 // ─── Chain config ──────────────────────────────────────────────────────────────
+// Maps each chain to its config entry. rpcTransport() reads ETH_RPC_URL /
+// ETH_RPC_URL_FALLBACK etc. and returns a WebSocket transport when the URL
+// starts with wss:// — enabling real-time push events instead of polling.
 
 const CHAIN_CONFIG = [
-  { chain: mainnet,  id: 1,      rpcEnv: 'RPC_ETH'    },
-  { chain: arbitrum, id: 42161,  rpcEnv: 'RPC_ARB'    },
-  { chain: base,     id: 8453,   rpcEnv: 'RPC_BASE'   },
-  { chain: optimism, id: 10,     rpcEnv: 'RPC_OPT'    },
-  { chain: polygon,  id: 137,    rpcEnv: 'RPC_POLY'   },
-  { chain: bsc,      id: 56,     rpcEnv: 'RPC_BNB'    },
-  { chain: avalanche,id: 43114,  rpcEnv: 'RPC_AVAX'   },
-  { chain: scroll,   id: 534352, rpcEnv: 'RPC_SCROLL' },
-  { chain: zkSync,   id: 324,    rpcEnv: 'RPC_ZKSYNC' },
+  { chain: mainnet,   id: 1,      rpcCfg: config.chains.ethereum  },
+  { chain: arbitrum,  id: 42161,  rpcCfg: config.chains.arbitrum  },
+  { chain: base,      id: 8453,   rpcCfg: config.chains.base      },
+  { chain: optimism,  id: 10,     rpcCfg: config.chains.optimism  },
+  { chain: polygon,   id: 137,    rpcCfg: config.chains.polygon   },
+  { chain: bsc,       id: 56,     rpcCfg: config.chains.bnb       },
+  { chain: avalanche, id: 43114,  rpcCfg: config.chains.avalanche },
+  { chain: scroll,    id: 534352, rpcCfg: config.chains.scroll    },
+  { chain: zkSync,    id: 324,    rpcCfg: config.chains.zkSync    },
 ] as const;
 
 // ─── Service ──────────────────────────────────────────────────────────────────
@@ -138,22 +146,26 @@ export class BridgeListenerService {
   }
 
   /**
-   * Start watching all configured chains. Chains without an RPC env var are
-   * silently skipped so the service degrades gracefully in dev.
+   * Start watching all configured chains.
+   * Chains without any RPC URL configured are silently skipped.
+   * Chains with a wss:// URL get a WebSocket transport (real-time push).
+   * Chains with an https:// URL fall back to HTTP polling.
    */
   async start(): Promise<void> {
-    for (const { chain, id, rpcEnv } of CHAIN_CONFIG) {
-      const rpcUrl = process.env[rpcEnv];
-      const transport = rpcUrl ? http(rpcUrl) : http(); // public RPC fallback
+    let started = 0;
+    for (const { chain, id, rpcCfg } of CHAIN_CONFIG) {
+      const transport = rpcTransport(rpcCfg);
+      if (!transport) continue; // no RPC configured — skip silently
 
       const client = createPublicClient({ chain, transport }) as PublicClient;
       this.clients.set(id, client);
 
       this.watchAcross(client, id);
       this.watchStargate(client, id);
+      started++;
     }
 
-    console.log(`[BridgeListener] Watching ${CHAIN_CONFIG.length} chains`);
+    console.log(`[BridgeListener] Watching ${started} chains (WebSocket where wss:// URL is set)`);
   }
 
   stop(): void {
