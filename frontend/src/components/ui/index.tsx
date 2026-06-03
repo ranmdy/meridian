@@ -143,7 +143,7 @@ export function StepChain({ steps }: { steps: StepChainStep[] }) {
 /* FIELD ---------------------------------------------------------------- */
 interface FieldProps {
   label: string;
-  sub?: string;
+  sub?: React.ReactNode;
   children: React.ReactNode;
 }
 export function Field({ label, sub, children }: FieldProps) {

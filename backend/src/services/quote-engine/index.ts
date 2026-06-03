@@ -232,28 +232,36 @@ export class QuoteEngine {
 
     // Reference pairs: [fromChain, toChain, fromAsset, fromAmount (in token units), decimals]
     const pairs: Array<[number, number, string, string, number]> = [
-      [1, 42161, 'USDC', '4200000000', 6],   // ETH → ARB  4,200 USDC
-      [1, 8453,  'USDC', '4200000000', 6],   // ETH → Base 4,200 USDC
-      [1, 42161, 'ETH',  '1000000000000000000', 18], // ETH → ARB  1 ETH
+      [1,        42161, 'USDC', '4200000000',         6],  // ETH mainnet → Arbitrum
+      [1,        8453,  'USDC', '4200000000',         6],  // ETH mainnet → Base
+      [1,        42161, 'ETH',  '1000000000000000000', 18], // ETH mainnet → Arbitrum
+      // Testnet pairs
+      [11155111, 84532, 'USDC', '100000000',          6],  // Sepolia → Base Sepolia 100 USDC
+      [11155111, 84532, 'ETH',  '10000000000000000',  18], // Sepolia → Base Sepolia 0.01 ETH
     ];
 
-    // Li.Fi chain ID names
+    // Li.Fi chain ID names (Li.Fi accepts numeric chain IDs directly)
     const chainNames: Record<number, string> = {
-      1: 'ETH', 42161: 'ARB', 8453: 'BAS', 56: 'BSC', 137: 'POL',
-      10: 'OPT', 43114: 'AVA', 101: 'SOL', 534352: 'SCR', 324: 'ERA',
+      1:        'ETH', 42161: 'ARB',  8453:  'BAS',  56:  'BSC', 137: 'POL',
+      10:       'OPT', 43114: 'AVA',  101:   'SOL',  534352: 'SCR', 324: 'ERA',
+      11155111: 'SEP', 84532: 'BSP',
     };
 
     // ERC-20 addresses (or native sentinel) per asset/chain
     const tokenAddresses: Record<string, Record<number, string>> = {
       USDC: {
-        1:     '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-        42161: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-        8453:  '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+        1:        '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+        42161:    '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+        8453:     '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+        11155111: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', // USDC Sepolia
+        84532:    '0x036CbD53842c5426634e7929541eC2318f3dCF7e', // USDC Base Sepolia
       },
       ETH: {
-        1:     '0x0000000000000000000000000000000000000000',
-        42161: '0x0000000000000000000000000000000000000000',
-        8453:  '0x0000000000000000000000000000000000000000',
+        1:        '0x0000000000000000000000000000000000000000',
+        42161:    '0x0000000000000000000000000000000000000000',
+        8453:     '0x0000000000000000000000000000000000000000',
+        11155111: '0x0000000000000000000000000000000000000000',
+        84532:    '0x0000000000000000000000000000000000000000',
       },
     };
 

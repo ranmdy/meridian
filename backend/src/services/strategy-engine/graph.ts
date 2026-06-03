@@ -390,5 +390,47 @@ export function buildSeedGraph(): ProtocolGraph {
   g.addEdge({ from: 'ETH_324_wallet',  to: 'ETH_324_zerolend_deposit',  stepType: 'LEND', protocol: 'zerolend', protocolAddress: ZEROLEND_ZKSYNC, gasEstimateUsd: 0.05, bridgeFeeUsd: 0, slippageBps: 0, isBridge: false });
   g.addEdge({ from: 'USDT_324_wallet', to: 'USDT_324_zerolend_deposit', stepType: 'LEND', protocol: 'zerolend', protocolAddress: ZEROLEND_ZKSYNC, gasEstimateUsd: 0.05, bridgeFeeUsd: 0, slippageBps: 0, isBridge: false });
 
+  // ── Sepolia Testnet (chain 11155111) ─────────────────────────────────────────
+  // Real testnet protocol addresses. APY seeded from mainnet reference values
+  // (Aave v3 uses the same interest rate model on testnet) and refreshed from
+  // the quote engine's DeFiLlama feed for chain 1.
+
+  const AAVE_SEPOLIA         = '0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951'; // Aave v3 Pool — Ethereum Sepolia
+  const ACROSS_SEPOLIA       = '0x5ef6C01E11889d86803e0B23e3cB3F9E9d97B662'; // Across V3 SpokePool — Sepolia
+
+  g.addNode(wallet('ETH',  11155111));
+  g.addNode(wallet('USDC', 11155111));
+
+  // Aave v3 on Sepolia (same interest rate model as mainnet → use mainnet seed APY)
+  g.addNode(lendNode('ETH',  'aETH',  11155111, 'aave_v3', 0, 210));
+  g.addNode(lendNode('USDC', 'aUSDC', 11155111, 'aave_v3', 0, 480));
+
+  // Across: Sepolia → Base Sepolia
+  g.addEdge({ from: 'USDC_11155111_wallet', to: 'USDC_84532_wallet', stepType: 'BRIDGE', protocol: 'across', protocolAddress: ACROSS_SEPOLIA, gasEstimateUsd: 0.05, bridgeFeeUsd: 0.20, slippageBps: 2, isBridge: true });
+  g.addEdge({ from: 'ETH_11155111_wallet',  to: 'ETH_84532_wallet',  stepType: 'BRIDGE', protocol: 'across', protocolAddress: ACROSS_SEPOLIA, gasEstimateUsd: 0.06, bridgeFeeUsd: 0.25, slippageBps: 3, isBridge: true });
+
+  // Sepolia: wallet → Aave v3
+  g.addEdge({ from: 'ETH_11155111_wallet',  to: 'ETH_11155111_aave_v3_deposit',  stepType: 'LEND', protocol: 'aave_v3', protocolAddress: AAVE_SEPOLIA, gasEstimateUsd: 0.05, bridgeFeeUsd: 0, slippageBps: 0, isBridge: false });
+  g.addEdge({ from: 'USDC_11155111_wallet', to: 'USDC_11155111_aave_v3_deposit', stepType: 'LEND', protocol: 'aave_v3', protocolAddress: AAVE_SEPOLIA, gasEstimateUsd: 0.04, bridgeFeeUsd: 0, slippageBps: 0, isBridge: false });
+
+  // ── Base Sepolia Testnet (chain 84532) ───────────────────────────────────────
+
+  const AAVE_BASE_SEPOLIA    = '0x07eA79F68B2B3df564D0A34F8e19D9B1e339814b'; // Aave v3 Pool — Base Sepolia
+  const ACROSS_BASE_SEPOLIA  = '0x82B564983aE7274c86695917BBf8C99ECb6F0F8F'; // Across V3 SpokePool — Base Sepolia
+
+  g.addNode(wallet('ETH',  84532));
+  g.addNode(wallet('USDC', 84532));
+
+  // Aave v3 on Base Sepolia
+  g.addNode(lendNode('ETH',  'aETH',  84532, 'aave_v3', 0, 190));
+  g.addNode(lendNode('USDC', 'aUSDC', 84532, 'aave_v3', 0, 520));
+
+  // Base Sepolia: wallet → Aave v3
+  g.addEdge({ from: 'ETH_84532_wallet',  to: 'ETH_84532_aave_v3_deposit',  stepType: 'LEND', protocol: 'aave_v3', protocolAddress: AAVE_BASE_SEPOLIA, gasEstimateUsd: 0.01, bridgeFeeUsd: 0, slippageBps: 0, isBridge: false });
+  g.addEdge({ from: 'USDC_84532_wallet', to: 'USDC_84532_aave_v3_deposit', stepType: 'LEND', protocol: 'aave_v3', protocolAddress: AAVE_BASE_SEPOLIA, gasEstimateUsd: 0.01, bridgeFeeUsd: 0, slippageBps: 0, isBridge: false });
+
+  // Base Sepolia → Sepolia (reverse bridge)
+  g.addEdge({ from: 'USDC_84532_wallet', to: 'USDC_11155111_wallet', stepType: 'BRIDGE', protocol: 'across', protocolAddress: ACROSS_BASE_SEPOLIA, gasEstimateUsd: 0.02, bridgeFeeUsd: 0.20, slippageBps: 2, isBridge: true });
+
   return g;
 }

@@ -404,7 +404,9 @@ export function ComposerPage() {
                   style={{
                     position: 'absolute', left: node.x, top: node.y, width: NODE_W,
                     background: 'var(--card)',
-                    border: '1px solid ' + (isSel ? 'var(--ink)' : 'color-mix(in oklch, var(--ink) 20%, transparent)'),
+                    borderTop: '1px solid ' + (isSel ? 'var(--ink)' : 'color-mix(in oklch, var(--ink) 20%, transparent)'),
+                    borderRight: '1px solid ' + (isSel ? 'var(--ink)' : 'color-mix(in oklch, var(--ink) 20%, transparent)'),
+                    borderBottom: '1px solid ' + (isSel ? 'var(--ink)' : 'color-mix(in oklch, var(--ink) 20%, transparent)'),
                     borderLeft: '3px solid ' + KIND_COLORS[node.kind],
                     cursor: 'grab', fontSize: 12, touchAction: 'none', userSelect: 'none',
                     boxShadow: isSel ? '0 0 0 3px color-mix(in oklch, var(--signal) 30%, transparent)' : 'none',

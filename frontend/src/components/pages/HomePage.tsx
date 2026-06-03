@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAccount } from 'wagmi';
+import { useAccount, useBalance } from 'wagmi';
 import {
   Tag, PageHead, StepChain, KindBadge,
   Field, Segmented, RiskLevels, Spinner, Modal,
@@ -11,15 +11,41 @@ import { CHAINS, ASSETS, SAVED_STRATEGIES, fmtUsd, fmtPct, riskColor } from '@/s
 import { api, type Route as ApiRoute, type SimulationResult } from '@/src/lib/api';
 import { useAuthStore } from '@/src/stores/auth';
 import { useExecutionStore } from '@/src/stores/execution';
+import { useNetworkStore } from '@/src/stores/network';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const CHAIN_ID: Record<string, number> = {
-  Ethereum: 1, Arbitrum: 42161, Base: 8453, Polygon: 137,
-  'BNB Chain': 56, Optimism: 10, Avalanche: 43114, Scroll: 534352, 'zkSync Era': 324,
+const CHAIN_IDS = {
+  testnet: { Ethereum: 11155111, Base: 84532, Arbitrum: 42161, Polygon: 137,
+             'BNB Chain': 56, Optimism: 10, Avalanche: 43114, Scroll: 534352, 'zkSync Era': 324 },
+  mainnet: { Ethereum: 1,       Base: 8453,  Arbitrum: 42161, Polygon: 137,
+             'BNB Chain': 56, Optimism: 10, Avalanche: 43114, Scroll: 534352, 'zkSync Era': 324 },
 };
+
 const CHAIN_NAME: Record<number, string> = {
   1: 'Ethereum', 42161: 'Arbitrum', 8453: 'Base', 137: 'Polygon',
   56: 'BNB Chain', 10: 'Optimism', 43114: 'Avalanche', 534352: 'Scroll', 324: 'zkSync Era',
+  11155111: 'Ethereum (Sepolia)', 84532: 'Base (Sepolia)',
+};
+
+// ERC-20 token addresses per chain (native ETH has no entry → useBalance fetches ETH)
+const TOKEN_ADDRESSES: Record<string, Partial<Record<number, `0x${string}`>>> = {
+  USDC: {
+    1:        '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+    8453:     '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    42161:    '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+    137:      '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+    11155111: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+    84532:    '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+  },
+  USDT: {
+    1:     '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+    42161: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
+  },
+  WETH: {
+    1:     '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+    8453:  '0x4200000000000000000000000000000000000006',
+    42161: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
+  },
 };
 
 function getRiskLabel(score: number): string {
@@ -61,7 +87,7 @@ function toDisplayRoute(r: ApiRoute, rank: number, sourceAmountUsd: number): Dis
   return {
     rank,
     apy: n(r.estimatedApyBps) / 100,
-    feePct: sourceAmountUsd > 0 ? (totalFeeUsd / sourceAmountUsd) * 100 : 0,
+    feePct: sourceAmountUsd >= 1 ? (totalFeeUsd / sourceAmountUsd) * 100 : 0,
     totalFeeUsd,
     timeMin: n(r.estimatedTimeSeconds) / 60,
     risk: n(r.riskScore),
@@ -284,6 +310,8 @@ export function HomePage() {
   const { address, isConnected } = useAccount();
   const { isAuthenticated } = useAuthStore();
   const { setStepMeta } = useExecutionStore();
+  const { mode: networkMode } = useNetworkStore();
+  const CHAIN_ID: Record<string, number> = CHAIN_IDS[networkMode];
 
   // Form state
   const [mode, setMode] = useState<'manual' | 'auto'>('manual');
@@ -291,6 +319,18 @@ export function HomePage() {
   const [amount, setAmount] = useState('25000');
   const [srcAsset, setSrcAsset] = useState('USDC');
   const [srcChain, setSrcChain] = useState('Ethereum');
+
+  // Wallet balance for selected source asset + chain
+  const srcChainId = CHAIN_ID[srcChain];
+  const srcTokenAddr = TOKEN_ADDRESSES[srcAsset]?.[srcChainId];
+  const { data: walletBal } = useBalance({
+    address,
+    token: srcTokenAddr,
+    chainId: srcChainId,
+  });
+  const balanceSub = walletBal
+    ? <span style={{ color: 'var(--ink-2)' }}>Balance: <strong>{parseFloat(walletBal.formatted).toFixed(2)}</strong> {walletBal.symbol}</span>
+    : <span style={{ color: 'var(--ink-3)' }}>USD</span>;
   const [dstChain, setDstChain] = useState('Base');
   const [dstWallet, setDstWallet] = useState('');
   const [timeHorizon, setTimeHorizon] = useState('30');
@@ -360,16 +400,17 @@ export function HomePage() {
     try {
       if (mode === 'auto') {
         const res = await api.strategy.autoOptimize(req);
-        const all = [res.route, ...res.alternatives];
+        const all = [...[res.route, ...res.alternatives]].sort((a, b) => n(b.estimatedApyBps) - n(a.estimatedApyBps));
         setRawRoutes(all);
         setRoutes(all.map((r, i) => toDisplayRoute(r, i + 1, amountNum)));
         setAiExplanation(res.explanation);
         setQuoteExpiresAt(res.quoteExpiresAt);
-        setSelectedIdx(res.routeIndex);
+        setSelectedIdx(0);
       } else {
         const res = await api.strategy.optimize(req);
-        setRawRoutes(res.routes);
-        setRoutes(res.routes.map((r, i) => toDisplayRoute(r, i + 1, amountNum)));
+        const sorted = [...res.routes].sort((a, b) => n(b.estimatedApyBps) - n(a.estimatedApyBps));
+        setRawRoutes(sorted);
+        setRoutes(sorted.map((r, i) => toDisplayRoute(r, i + 1, amountNum)));
         setQuoteExpiresAt(res.quoteExpiresAt);
         setSelectedIdx(0);
       }
@@ -488,7 +529,7 @@ export function HomePage() {
                     </select>
                   </Field>
                 </div>
-                <Field label="Amount" sub="USD">
+                <Field label="Amount" sub={balanceSub}>
                   <div className="relative">
                     <input
                       className="input mono"

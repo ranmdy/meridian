@@ -541,6 +541,11 @@ hr { border: 0; border-top: 1px solid var(--ink); opacity: 0.12; margin: 0; }
 }
 .pulse { animation: pulseDot 1.4s ease-in-out infinite; }
 
+@keyframes shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }

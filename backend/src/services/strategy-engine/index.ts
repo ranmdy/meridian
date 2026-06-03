@@ -38,19 +38,30 @@ export class StrategyEngine {
    * Called after every 15s quote poll cycle.
    */
   refreshFromQuotes(apyQuotes: ApyQuote[]): void {
+    // Testnet chains mirror their mainnet counterparts' interest rate models.
+    // When mainnet APY data arrives, apply it to the corresponding testnet nodes.
+    const TESTNET_MIRRORS: Record<number, number> = {
+      1:    11155111, // Ethereum mainnet → Sepolia
+      8453: 84532,    // Base mainnet     → Base Sepolia
+    };
+
     for (const q of apyQuotes) {
       if (q.isStale) continue;
 
       const protocolKey = PROTOCOL_NODE_MAP[q.protocol] ?? q.protocol;
-      // Search for matching nodes: asset + chain + protocol pattern
-      for (const node of this.graph.allNodes()) {
-        if (
-          node.chain === q.chain &&
-          node.asset.replace(/^a/, '') === q.asset && // strip Aave aToken prefix
-          node.protocol.includes(protocolKey)
-        ) {
-          node.apyBps = q.supplyApyBps;
-          node.tvlUsd = q.tvlUsd;
+      const chainsToUpdate = [q.chain, TESTNET_MIRRORS[q.chain]].filter(Boolean) as number[];
+
+      for (const chainId of chainsToUpdate) {
+        for (const node of this.graph.allNodes()) {
+          if (
+            node.chain === chainId &&
+            node.asset.replace(/^a/, '') === q.asset &&
+            node.protocol.includes(protocolKey)
+          ) {
+            node.apyBps = q.supplyApyBps;
+            // Don't mirror mainnet TVL to testnet (testnet TVL is 0 by design)
+            if (chainId === q.chain) node.tvlUsd = q.tvlUsd;
+          }
         }
       }
     }

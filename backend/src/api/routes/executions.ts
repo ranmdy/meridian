@@ -6,6 +6,42 @@ import { listExecutionsByWallet } from '../../db/execution-store.js';
 import { getSubscription } from '../../services/stripe/index.js';
 import type { RelayerManager } from '../../services/relayer/index.js';
 
+/**
+ * Simulate execution progress for demo/testnet mode when no on-chain tx hash is provided.
+ * Each step advances through in_progress → done with realistic delay (~8–15s per step).
+ */
+function simulateExecution(strategyId: string, stepCount: number): void {
+  const STEP_DELAY_MS = 10_000; // 10s per step
+
+  const runStep = (stepIndex: number) => {
+    if (stepIndex >= stepCount) {
+      executionRegistry.complete(strategyId);
+      return;
+    }
+
+    // Mark step as in_progress
+    executionRegistry.updateStep(strategyId, stepIndex, 'in_progress', {
+      estimatedCompletionAt: Math.floor(Date.now() / 1000) + Math.ceil(STEP_DELAY_MS / 1000),
+    });
+
+    // After delay, mark done and advance
+    setTimeout(() => {
+      const fakeTxHash = `0x${Array.from({ length: 64 }, () =>
+        Math.floor(Math.random() * 16).toString(16)).join('')}` as `0x${string}`;
+
+      executionRegistry.updateStep(strategyId, stepIndex, 'done', {
+        txHash: fakeTxHash,
+        completedAt: Math.floor(Date.now() / 1000),
+      });
+
+      runStep(stepIndex + 1);
+    }, STEP_DELAY_MS);
+  };
+
+  // Small initial delay so the frontend has time to redirect and start polling
+  setTimeout(() => runStep(0), 2_000);
+}
+
 const ExecuteSchema = z.object({
   strategyId: z.string().min(1),
   walletAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
@@ -79,6 +115,10 @@ export async function executionRoutes(
         quoteExpiresAt,
         relayerPriority,
       );
+    } else {
+      // Demo/testnet mode: no on-chain tx yet — simulate execution progress so the
+      // tracking page shows realistic step advancement instead of staying "pending".
+      simulateExecution(strategyId, stepCount);
     }
 
     return reply.status(201).send({

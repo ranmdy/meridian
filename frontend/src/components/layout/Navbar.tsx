@@ -7,6 +7,7 @@ import { useAccount, useConnect, useDisconnect } from 'wagmi';
 import { useTheme } from '@/src/hooks/useTheme';
 import { useSignIn } from '@/src/hooks/useSignIn';
 import { useAuthStore } from '@/src/stores/auth';
+import { useNetworkStore } from '@/src/stores/network';
 
 const NAV_LINKS = [
   { href: '/',            label: 'Routes' },
@@ -186,6 +187,7 @@ export function Navbar() {
   const { disconnect }                  = useDisconnect();
   const { signIn, signOut, state: signInState, error: signInError } = useSignIn();
   const { isAuthenticated } = useAuthStore();
+  const { mode: networkMode, toggle: toggleNetwork } = useNetworkStore();
 
   // Auto-trigger SIWE once wallet connects
   useEffect(() => {
@@ -244,6 +246,23 @@ export function Navbar() {
 
           {/* Right side */}
           <div className="nav-right">
+            {/* Network toggle */}
+            <button
+              className="btn btn-sm mono"
+              onClick={toggleNetwork}
+              title={`Switch to ${networkMode === 'testnet' ? 'mainnet' : 'testnet'}`}
+              style={{
+                fontSize: 11,
+                letterSpacing: '0.05em',
+                background: networkMode === 'testnet' ? 'var(--signal)' : 'transparent',
+                color: networkMode === 'testnet' ? '#fff' : 'var(--ink-2)',
+                border: '1px solid',
+                borderColor: networkMode === 'testnet' ? 'var(--signal)' : 'var(--border)',
+              }}
+            >
+              {networkMode === 'testnet' ? 'TESTNET' : 'MAINNET'}
+            </button>
+
             {/* Theme toggle */}
             <button
               className="btn btn-ghost btn-sm mono"

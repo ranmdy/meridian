@@ -19,8 +19,7 @@ const EXPLORER: Record<number, string> = {
   324: 'https://explorer.zksync.io/tx/',
 };
 
-function fmtElapsed(secs?: number): string {
-  if (!secs) return '0:00';
+function fmtElapsed(secs: number): string {
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
@@ -124,13 +123,32 @@ export function ExecutionPage({ id }: { id: string }) {
   const routeSteps = stepMeta[id] ?? [];
   const [status, setStatus] = useState<ExecutionStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startRef = useRef<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   const setAndStore = useCallback((s: ExecutionStatus) => {
     setStatus(s);
     updateStatus(s);
+    // Seed start time from server on first status
+    if (!startRef.current) {
+      startRef.current = Date.now() - (s.elapsedSeconds ?? 0) * 1000;
+      setElapsed(s.elapsedSeconds ?? 0);
+    }
   }, [updateStatus]);
+
+  // Client-side 1-second tick so the timer counts up smoothly
+  useEffect(() => {
+    if (tickRef.current) clearInterval(tickRef.current);
+    tickRef.current = setInterval(() => {
+      if (startRef.current) {
+        setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
+      }
+    }, 1000);
+    return () => { if (tickRef.current) clearInterval(tickRef.current); };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -246,23 +264,42 @@ export function ExecutionPage({ id }: { id: string }) {
             </div>
             <div className="col items-end gap-1">
               <span className="meta">Elapsed</span>
-              <span className="num-md">{fmtElapsed(status.elapsedSeconds)}</span>
+              <span className="num-md">{fmtElapsed(elapsed)}</span>
             </div>
           </div>
 
           {/* Progress track */}
           {status.steps.length > 0 && (
             <div className="px-5 py-5 hairline-b">
+              <div className="flex justify-between mb-2">
+                <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  Progress
+                </span>
+                <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)' }}>
+                  {status.steps.filter(s => s.status === 'done').length} / {status.steps.length} steps
+                </span>
+              </div>
               <div style={{ display: 'flex', gap: 4 }}>
                 {status.steps.map((s, i) => {
+                  const isActive = s.status === 'in_progress';
                   const color = s.status === 'done'
                     ? 'var(--ok)'
-                    : s.status === 'in_progress'
+                    : isActive
                     ? 'var(--info)'
                     : s.status === 'failed'
                     ? 'var(--bad)'
                     : 'color-mix(in oklch, var(--ink) 10%, transparent)';
-                  return <div key={i} style={{ flex: 1, height: 6, background: color }} />;
+                  return (
+                    <div key={i} style={{ flex: 1, height: 6, background: color, position: 'relative', overflow: 'hidden' }}>
+                      {isActive && (
+                        <div style={{
+                          position: 'absolute', inset: 0,
+                          background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.35) 50%, transparent 100%)',
+                          animation: 'shimmer 1.4s ease-in-out infinite',
+                        }} />
+                      )}
+                    </div>
+                  );
                 })}
               </div>
               <div className="flex justify-between mt-2">
@@ -270,7 +307,11 @@ export function ExecutionPage({ id }: { id: string }) {
                   const m = routeSteps[i];
                   const tick = m ? fmtProtocol(m.protocol).split(' ')[0] : String(i + 1).padStart(2, '0');
                   return (
-                    <span key={i} className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                    <span key={i} className="mono" style={{
+                      fontSize: 10,
+                      color: s.status === 'done' ? 'var(--ok)' : s.status === 'in_progress' ? 'var(--info)' : 'var(--ink-3)',
+                      letterSpacing: '0.1em', textTransform: 'uppercase',
+                    }}>
                       {tick}
                     </span>
                   );

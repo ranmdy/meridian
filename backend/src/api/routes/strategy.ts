@@ -179,10 +179,10 @@ export async function strategyRoutes(
     });
   });
 
-  // POST /strategy/compose — programmatic strategy composition (API key clients, no UI)
+  // POST /strategy/compose — programmatic strategy composition (API key clients + UI Composer)
   // Accepts a custom steps array, validates it, enriches with live quotes, returns a Route.
-  // Requires: auth + pro subscription (or API tier).
-  fastify.post('/strategy/compose', { preHandler: [requireAuth, requireTier('pro'), tieredRateLimit] }, async (request, reply) => {
+  // Auth required; tier gate removed for testnet/dev access.
+  fastify.post('/strategy/compose', { preHandler: [requireAuth, tieredRateLimit] }, async (request, reply) => {
     const StepSchema = z.object({
       stepType: z.enum(['SWAP', 'BRIDGE', 'LEND', 'STAKE', 'SETTLE']),
       protocol: z.string().min(1),
