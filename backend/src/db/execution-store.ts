@@ -148,8 +148,8 @@ export async function insertExecutionSteps(
     const values = Array.from({ length: totalSteps }, (_, i) => i);
     for (const idx of values) {
       await pool.query(
-        `INSERT INTO execution_steps (execution_id, step_index, status)
-         VALUES ($1, $2, 'pending')
+        `INSERT INTO execution_steps (execution_id, step_index, status, step_type)
+         VALUES ($1, $2, 'pending', 'unknown')
          ON CONFLICT (execution_id, step_index) DO NOTHING`,
         [execId, idx],
       );

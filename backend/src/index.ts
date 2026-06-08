@@ -85,7 +85,11 @@ fastify.get('/ws/strategy/:strategyId', { websocket: true }, (socket, req) => {
 
   const listener = (sid: string, job: unknown) => {
     if (sid === strategyId) {
-      socket.send(JSON.stringify({ type: 'status_update', data: job }));
+      // BigInt values (e.g. job.steps[].minOutput, job.bridgedAmount) cannot be
+      // serialised with the default JSON.stringify — replace them with strings.
+      const replacer = (_: string, v: unknown) =>
+        typeof v === 'bigint' ? v.toString() : v;
+      socket.send(JSON.stringify({ type: 'status_update', data: job }, replacer));
       wsMetrics.messageDelivered();
     }
   };
