@@ -7,27 +7,27 @@
       "explorer": "https://sepolia.etherscan.io",
       "contracts": {
         "MeridianRouter": {
-          "address": "0x9D77c4Af9e76C419672cd25d0C73DDD75d0235D3",
+          "address": "0x0a2214F676ab38283ce180D1bd4FB114f26d6445",
           "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
-          "blockNumber": 10970464,
-          "txHash": "0x2400a49edb83bd0c8fde82e8c3592d6b4a6c5995cfc65509d8eaba044b8f2b7d",
-          "deployedAt": "2026-06-01",
+          "blockNumber": 0,
+          "txHash": "0xc9d8277329b58bb2a4a6fbf4866079623f072ab42d3c158914f16087990a642a",
+          "deployedAt": "2026-06-08",
           "verified": false
         },
         "MeridianStrategyRegistry": {
-          "address": "0xe14c81d2E11Fd5278A040D1B58406Ea83cb7F514",
+          "address": "0xDd4F6eAE7DEA51d2AfaA2ee7E163a9D9f56476f0",
           "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
-          "blockNumber": 10970465,
-          "txHash": "0xeed2cafe1a215f909ffd4d624527d8d7bdcc46b354c82efb79b123ba66ad204c",
-          "deployedAt": "2026-06-01",
+          "blockNumber": 0,
+          "txHash": "0x0621dc0376802fbdd8acc83a3803a6b13a83c175459ee3a82610d053e662cd66",
+          "deployedAt": "2026-06-08",
           "verified": false
         },
         "MeridianVault": {
-          "address": "0xC8a0Fb6d6d4D513ddA0fEBf3E4b69bde132c8B9C",
+          "address": "0x17e280Ad5c8b73A0B719F2DFe5a3ADCEd123d754",
           "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
-          "blockNumber": 10970466,
-          "txHash": "0x63e67932cc004575288bab44d58dc554443e7374306970e728080e330d3e979f",
-          "deployedAt": "2026-06-01",
+          "blockNumber": 0,
+          "txHash": "0x40a6697b54fc53f9f7e875037facc4e54f1af59f53e1fcf6e326a054dc5a34dc",
+          "deployedAt": "2026-06-08",
           "verified": false
         }
       }

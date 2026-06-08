@@ -38,7 +38,7 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 contract TestnetVerify is Script {
 
     // ── Deployed router addresses ──────────────────────────────────────────────
-    address constant ROUTER_SEPOLIA      = 0x9D77c4Af9e76C419672cd25d0C73DDD75d0235D3;
+    address constant ROUTER_SEPOLIA      = 0x0a2214F676ab38283ce180D1bd4FB114f26d6445;
     address constant ROUTER_BASE_SEPOLIA = 0x4a822882689941B2478Fd548AE3a1559Ab000b06;
 
     /// @dev 0.001 ETH per test — well within the 0.734 ETH balance on Sepolia.
