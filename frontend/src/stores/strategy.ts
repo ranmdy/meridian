@@ -27,6 +27,7 @@ interface StrategyState {
   destinationWallet: string;
   destinationVerified: boolean;
   destinationSignature: string;
+  destinationDeadline: number; // unix seconds — must match the deadline passed to executeStrategy
 
   // Optimized routes
   routes: Route[];
@@ -54,7 +55,7 @@ interface StrategyState {
   setRiskTolerance: (r: 1 | 2 | 3 | 4 | 5) => void;
   setTimeHorizonDays: (days: number) => void;
   setDestinationWallet: (wallet: string) => void;
-  setDestinationVerified: (verified: boolean, signature?: string) => void;
+  setDestinationVerified: (verified: boolean, signature?: string, deadline?: number) => void;
   setRoutes: (routes: Route[], quoteExpiresAt: number) => void;
   setAutoResult: (route: Route, explanation: string, alternatives: Route[], quoteExpiresAt: number) => void;
   selectRoute: (index: number) => void;
@@ -75,6 +76,7 @@ const defaults = {
   destinationWallet: '',
   destinationVerified: false,
   destinationSignature: '',
+  destinationDeadline: 0,
   routes: [],
   selectedRouteIndex: 0,
   quoteExpiresAt: null,
@@ -134,9 +136,9 @@ export const useStrategyStore = create<StrategyState>()(
       setRiskTolerance: (riskTolerance) => set({ riskTolerance }),
       setTimeHorizonDays: (timeHorizonDays) => set({ timeHorizonDays }),
       setDestinationWallet: (destinationWallet) =>
-        set({ destinationWallet, destinationVerified: false, destinationSignature: '' }),
-      setDestinationVerified: (destinationVerified, signature = '') =>
-        set({ destinationVerified, destinationSignature: signature }),
+        set({ destinationWallet, destinationVerified: false, destinationSignature: '', destinationDeadline: 0 }),
+      setDestinationVerified: (destinationVerified, signature = '', deadline = 0) =>
+        set({ destinationVerified, destinationSignature: signature, destinationDeadline: deadline }),
       setRoutes: (routes, quoteExpiresAt) =>
         set({ routes, quoteExpiresAt, selectedRouteIndex: 0, optimizeError: null }),
       setAutoResult: (route, explanation, alternatives, quoteExpiresAt) =>

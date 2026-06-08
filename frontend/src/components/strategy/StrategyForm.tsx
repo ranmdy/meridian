@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useAccount, useSignMessage } from 'wagmi';
+import { encodePacked, keccak256 } from 'viem';
 import type { Address } from 'viem';
 import { useStrategyStore } from '@/src/stores/strategy';
 import { usePortfolio } from '@/src/hooks/usePortfolio';
@@ -30,7 +31,7 @@ const RISK_LABELS: Record<number, string> = {
 };
 
 export function StrategyForm() {
-  const { isConnected, address } = useAccount();
+  const { isConnected, address, chain } = useAccount();
   const { signMessage } = useSignMessage();
   const [verifying, setVerifying] = useState(false);
   const [saveName, setSaveName] = useState('');
@@ -63,18 +64,45 @@ export function StrategyForm() {
     sourceChain !== destinationChain;
 
   const handleVerifyDestination = async () => {
-    if (!destinationWallet || destinationWallet.length < 42) return;
+    if (!destinationWallet || destinationWallet.length < 42 || !address) return;
     setVerifying(true);
     try {
-      const message =
-        `Meridian destination verification\n` +
-        `I confirm this wallet is mine: ${destinationWallet}`;
+      // deadline: 30 min from now — stored and reused verbatim in executeStrategy
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 30 * 60);
+      // chainId must match block.chainid in _verifyDestination — i.e. the source chain
+      const chainId = BigInt(chain?.id ?? sourceChain);
+
+      // Replicate _verifyDestination message construction from MeridianRouter.sol exactly:
+      //   keccak256(abi.encodePacked(
+      //     "Meridian destination verification\n",
+      //     "Chain: ", chainId, "\n",
+      //     "I confirm this wallet is mine: ", destination,
+      //     "\nUser: ", user,
+      //     "\nDeadline: ", deadline
+      //   ))
+      const msgHash = keccak256(
+        encodePacked(
+          ['string', 'string', 'uint256', 'string', 'string', 'address', 'string', 'address', 'string', 'uint256'],
+          [
+            'Meridian destination verification\n',
+            'Chain: ',
+            chainId,
+            '\n',
+            'I confirm this wallet is mine: ',
+            destinationWallet as `0x${string}`,
+            '\nUser: ',
+            address as `0x${string}`,
+            '\nDeadline: ',
+            deadline,
+          ],
+        ),
+      );
 
       signMessage(
-        { message },
+        { message: { raw: msgHash } },
         {
           onSuccess: (sig) => {
-            setDestinationVerified(true, sig);
+            setDestinationVerified(true, sig, Number(deadline));
             setVerifying(false);
           },
           onError: () => {

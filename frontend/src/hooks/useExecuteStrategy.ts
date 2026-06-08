@@ -68,6 +68,7 @@ export function useExecuteStrategy() {
     quoteExpiresAt,
     destinationWallet,
     destinationSignature,
+    destinationDeadline,
   } = useStrategyStore();
 
   const { setActiveExecution } = useExecutionStore();
@@ -192,7 +193,11 @@ export function useExecuteStrategy() {
       // ── Step 2: executeStrategy ─────────────────────────────────────────────
       setStage('executing');
 
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + 30 * 60);
+      // Use the deadline that was included in the destination signature.
+      // Computing a fresh value here would cause _verifyDestination to reject the sig.
+      const deadline = destinationDeadline > 0
+        ? BigInt(destinationDeadline)
+        : BigInt(Math.floor(Date.now() / 1000) + 30 * 60);
 
       const steps = selectedRoute.steps.map((step) => ({
         stepType: STEP_TYPE[step.stepType] ?? 0,
@@ -236,7 +241,7 @@ export function useExecuteStrategy() {
   }, [
     selectedRoute, chain, userAddress, sourceAsset, sourceAmountUsd,
     sourceChain, destinationChain, quoteExpiresAt, executionTxHash,
-    destinationWallet, destinationSignature, isEth, tokenAddress,
+    destinationWallet, destinationSignature, destinationDeadline, isEth, tokenAddress,
     routerAddress, refetchAllowance, writeApprove, writeExecute, setActiveExecution,
   ]);
 
