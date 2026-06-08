@@ -4,7 +4,7 @@ import { executionRegistry } from '../../services/execution-registry/index.js';
 import { incrementExecutionCount } from '../../services/marketplace/index.js';
 import { listExecutionsByWallet } from '../../db/execution-store.js';
 import { getSubscription } from '../../services/stripe/index.js';
-import type { RelayerManager } from '../../services/relayer/index.js';
+import type { RelayerManager, OnChainStep } from '../../services/relayer/index.js';
 
 /**
  * Simulate execution progress for demo/testnet mode when no on-chain tx hash is provided.
@@ -54,6 +54,18 @@ const ExecuteSchema = z.object({
   quoteExpiresAt: z.number().optional(),
   /** If the user is executing a marketplace strategy, pass its ID to increment the copy count. */
   marketplaceStrategyId: z.string().optional(),
+  /**
+   * The exact Step[] array submitted to executeStrategy on-chain.
+   * Required for the relayer to call continueStrategy after a bridge step confirms.
+   * Without this, multi-step strategies with bridge hops will stall.
+   */
+  onChainSteps: z.array(z.object({
+    stepType: z.number().int().min(0).max(4),
+    protocol: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+    params: z.string().regex(/^0x[0-9a-fA-F]*$/).default('0x'),
+    minOutput: z.string().default('0'),
+    outputAsset: z.string().regex(/^0x[0-9a-fA-F]{40}$/).default('0x0000000000000000000000000000000000000000'),
+  })).optional(),
 });
 
 export async function executionRoutes(
@@ -106,6 +118,14 @@ export async function executionRoutes(
 
     // Submit initial monitor job to relayer so it watches the bridge tx
     if (initialTxHash) {
+      const steps: OnChainStep[] = (parsed.data.onChainSteps ?? []).map((s) => ({
+        stepType: s.stepType,
+        protocol: s.protocol as `0x${string}`,
+        params: s.params as `0x${string}`,
+        minOutput: BigInt(s.minOutput),
+        outputAsset: s.outputAsset as `0x${string}`,
+      }));
+
       opts.relayerManager.submitMonitorJob(
         strategyId,
         0,
@@ -114,6 +134,7 @@ export async function executionRoutes(
         destinationChain,
         quoteExpiresAt,
         relayerPriority,
+        steps,
       );
     } else {
       // Demo/testnet mode: no on-chain tx yet — simulate execution progress so the

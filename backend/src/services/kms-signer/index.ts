@@ -42,15 +42,18 @@ export type RelayerAccount = PrivateKeyAccount | LocalAccount;
 
 // Chain suffix map — matches the env var naming convention
 const CHAIN_SUFFIX: Record<number, string> = {
-  1:      'ETH',
-  42161:  'ARB',
-  8453:   'BASE',
-  10:     'OPT',
-  56:     'BNB',
-  137:    'POLY',
-  43114:  'AVAX',
-  534352: 'SCROLL',
-  324:    'ZKSYNC',
+  1:        'ETH',
+  42161:    'ARB',
+  8453:     'BASE',
+  10:       'OPT',
+  56:       'BNB',
+  137:      'POLY',
+  43114:    'AVAX',
+  534352:   'SCROLL',
+  324:      'ZKSYNC',
+  // Testnets reuse the same relayer keys as their mainnet counterparts
+  11155111: 'ETH',   // Sepolia   → RELAYER_PK_ETH
+  84532:    'BASE',  // Base Sepolia → RELAYER_PK_BASE
 };
 
 // ─── KMS Account (lazy-loaded to avoid AWS SDK import in environments without it)

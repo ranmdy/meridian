@@ -18,11 +18,13 @@ export const ROUTER_ABI = [
               { name: 'protocol', type: 'address' },
               { name: 'params', type: 'bytes' },
               { name: 'minOutput', type: 'uint256' },
+              { name: 'outputAsset', type: 'address' },
             ],
           },
           { name: 'destinationWallet', type: 'address' },
           { name: 'destinationSignature', type: 'bytes' },
           { name: 'deadline', type: 'uint256' },
+          { name: 'creator', type: 'address' },
         ],
       },
     ],
@@ -139,12 +141,14 @@ const ROUTER_ADDRESS =
   '0x5FbDB2315678afecb367f032d93F642f64180aa3';
 
 const ROUTER_ADDRESSES: Record<number, `0x${string}`> = {
-  1: ROUTER_ADDRESS,      // Ethereum (or Anvil dev)
-  8453: ROUTER_ADDRESS,   // Base
-  42161: ROUTER_ADDRESS,  // Arbitrum
-  56: ROUTER_ADDRESS,     // BNB
-  137: ROUTER_ADDRESS,    // Polygon
-  31337: ROUTER_ADDRESS,  // Anvil local
+  1:        ROUTER_ADDRESS,   // Ethereum (or Anvil dev)
+  8453:     ROUTER_ADDRESS,   // Base
+  42161:    ROUTER_ADDRESS,   // Arbitrum
+  56:       ROUTER_ADDRESS,   // BNB
+  137:      ROUTER_ADDRESS,   // Polygon
+  31337:    ROUTER_ADDRESS,   // Anvil local
+  11155111: (process.env.NEXT_PUBLIC_ROUTER_ADDRESS_SEPOLIA as `0x${string}`) ?? ROUTER_ADDRESS,
+  84532:    (process.env.NEXT_PUBLIC_ROUTER_ADDRESS_BASE_SEPOLIA as `0x${string}`) ?? ROUTER_ADDRESS,
 };
 
 export function getRouterAddress(chainId: number): `0x${string}` {

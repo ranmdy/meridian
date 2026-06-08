@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import {
   useWriteContract,
   useWaitForTransactionReceipt,
@@ -47,6 +47,16 @@ export function useExecuteStrategy() {
   const [strategyId, setStrategyId] = useState<`0x${string}` | undefined>();
   const [executionTxHash, setExecutionTxHash] = useState<`0x${string}` | undefined>();
   const [approvalHash, setApprovalHash] = useState<`0x${string}` | undefined>();
+
+  // Holds the Step[] passed to executeStrategy so we can forward it to the backend
+  // after the receipt confirms. A ref avoids stale closure issues.
+  const pendingStepsRef = useRef<Array<{
+    stepType: number;
+    protocol: `0x${string}`;
+    params: `0x${string}`;
+    minOutput: bigint;
+    outputAsset: `0x${string}`;
+  }>>([]);
 
   const {
     routes,
@@ -114,6 +124,13 @@ export function useExecuteStrategy() {
             stepCount: selectedRoute.steps.length,
             initialTxHash: executionTxHash,
             quoteExpiresAt: quoteExpiresAt ?? undefined,
+            onChainSteps: pendingStepsRef.current.map((s) => ({
+              stepType: s.stepType,
+              protocol: s.protocol,
+              params: s.params,
+              minOutput: s.minOutput.toString(),
+              outputAsset: s.outputAsset,
+            })),
           }).then(() => {
             setActiveExecution(parsedId);
           }).catch((err: Error) => {
@@ -181,8 +198,12 @@ export function useExecuteStrategy() {
         stepType: STEP_TYPE[step.stepType] ?? 0,
         protocol: (step.protocolAddress || ETH_ADDRESS) as `0x${string}`,
         params: '0x' as `0x${string}`,
-        minOutput: 0n, // replace with estimatedOutput × (1 − slippage) pre-mainnet
+        minOutput: 0n, // TODO: replace with estimatedOutput × (1 − slippage) pre-mainnet
+        outputAsset: ETH_ADDRESS as `0x${string}`, // address(0) = same asset as input
       }));
+
+      // Capture steps so the backend registration call below can include them
+      pendingStepsRef.current = steps;
 
       const sourceAssetAddr = isEth
         ? (ETH_ADDRESS as `0x${string}`)
@@ -200,6 +221,7 @@ export function useExecuteStrategy() {
             destinationWallet: destinationWallet as `0x${string}`,
             destinationSignature: destinationSignature as `0x${string}`,
             deadline,
+            creator: ETH_ADDRESS as `0x${string}`, // direct strategy — no marketplace creator
           },
         ],
         value: isEth ? sourceAmountRaw : 0n,

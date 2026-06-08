@@ -182,6 +182,14 @@ export const api = {
       stepCount: number;
       initialTxHash?: string;
       quoteExpiresAt?: number;
+      /** The exact Step[] submitted to executeStrategy on-chain — needed for bridge continuation. */
+      onChainSteps?: Array<{
+        stepType: number;
+        protocol: string;
+        params: string;
+        minOutput: string;
+        outputAsset: string;
+      }>;
     }) => post<{ executionId: string; strategyId: string; status: string; totalSteps: number; startedAt: number }>(
       '/strategy/execute',
       req,

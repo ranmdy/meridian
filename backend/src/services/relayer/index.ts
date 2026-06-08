@@ -27,7 +27,7 @@ import {
 } from 'viem';
 import { rpcTransport } from '../rpc-transport/index.js';
 import { emitWebhookEvent } from '../webhooks/index.js';
-import { mainnet, arbitrum, base, bsc, polygon, optimism, avalanche, scroll, zkSync } from 'viem/chains';
+import { mainnet, sepolia, arbitrum, base, baseSepolia, bsc, polygon, optimism, avalanche, scroll, zkSync } from 'viem/chains';
 import { getCachedRelayerAccount, signerDescription } from '../kms-signer/index.js';
 import { monitoring } from '../monitoring/index.js';
 import { relayer as relayerMetrics, anomaly } from '../metrics/index.js';
@@ -42,12 +42,21 @@ const ROUTER_ABI = parseAbi([
   'event StrategyCompleted(bytes32 indexed strategyId, address indexed destination, address asset, uint256 finalAmount)',
   'event StrategyFailed(bytes32 indexed strategyId, uint256 failedStep, string reason)',
   'event EmergencyExitTriggered(bytes32 indexed strategyId, address indexed source, uint256 amountReturned)',
-  'function continueStrategy(bytes32 strategyId, uint256 stepIndex) external',
+  'function continueStrategy(bytes32 strategyId, uint256 stepIndex, (uint8 stepType, address protocol, bytes params, uint256 minOutput, address outputAsset)[] steps, uint256 bridgedAmount) external',
 ]);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type JobStatus = 'pending' | 'running' | 'done' | 'failed';
+
+/** Mirrors the on-chain Step struct — required for continueStrategy ABI encoding. */
+export interface OnChainStep {
+  stepType: number;   // 0=SWAP 1=LEND 2=BRIDGE 3=STAKE 4=SETTLE
+  protocol: Address;
+  params: Hex;
+  minOutput: bigint;
+  outputAsset: Address;
+}
 
 export interface RelayerJob {
   id: string;
@@ -64,6 +73,11 @@ export interface RelayerJob {
   quoteExpiresAt: number;
   /** Set to true when the quote expired and re-optimization was triggered. */
   reoptimized: boolean;
+  /** Original on-chain steps — required to pass to continueStrategy after a bridge confirms. */
+  steps: OnChainStep[];
+  /** Amount that arrived on the destination chain post-bridge. Set from StepExecuted amountOut
+   *  and overridden with actual bridge receipt amount when available. */
+  bridgedAmount: bigint;
   /**
    * Job priority. Higher values are processed first.
    *   10 = Pro/API subscriber (dedicated priority)
@@ -134,6 +148,8 @@ export class RelayerManager {
     quoteExpiresAt = 0,
     /** Priority level: 10 = Pro/API, 0 = free tier. Higher runs first. */
     priority = 0,
+    steps: OnChainStep[] = [],
+    bridgedAmount: bigint = 0n,
   ): RelayerJob {
     const job: RelayerJob = {
       id: `${strategyId}-${stepIndex}`,
@@ -148,6 +164,8 @@ export class RelayerManager {
       quoteExpiresAt,
       reoptimized: false,
       priority,
+      steps,
+      bridgedAmount,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -186,15 +204,18 @@ export class RelayerManager {
 
   private async initClients() {
     const setups: Array<ChainSetup & { fallbackRpcUrl: string }> = [
-      { chain: mainnet,   rpcUrl: config.chains.ethereum.rpcUrl,  fallbackRpcUrl: config.chains.ethereum.fallbackRpcUrl,  routerEnvKey: 'ROUTER_ADDRESS_ETH'    },
-      { chain: base,      rpcUrl: config.chains.base.rpcUrl,      fallbackRpcUrl: config.chains.base.fallbackRpcUrl,      routerEnvKey: 'ROUTER_ADDRESS_BASE'   },
-      { chain: arbitrum,  rpcUrl: config.chains.arbitrum.rpcUrl,  fallbackRpcUrl: config.chains.arbitrum.fallbackRpcUrl,  routerEnvKey: 'ROUTER_ADDRESS_ARB'    },
-      { chain: bsc,       rpcUrl: config.chains.bnb.rpcUrl,       fallbackRpcUrl: config.chains.bnb.fallbackRpcUrl,       routerEnvKey: 'ROUTER_ADDRESS_BSC'    },
-      { chain: polygon,   rpcUrl: config.chains.polygon.rpcUrl,   fallbackRpcUrl: config.chains.polygon.fallbackRpcUrl,   routerEnvKey: 'ROUTER_ADDRESS_POLY'   },
-      { chain: optimism,  rpcUrl: config.chains.optimism.rpcUrl,  fallbackRpcUrl: config.chains.optimism.fallbackRpcUrl,  routerEnvKey: 'ROUTER_ADDRESS_OPT'    },
-      { chain: avalanche, rpcUrl: config.chains.avalanche.rpcUrl, fallbackRpcUrl: config.chains.avalanche.fallbackRpcUrl, routerEnvKey: 'ROUTER_ADDRESS_AVAX'   },
-      { chain: scroll,    rpcUrl: config.chains.scroll.rpcUrl,    fallbackRpcUrl: config.chains.scroll.fallbackRpcUrl,    routerEnvKey: 'ROUTER_ADDRESS_SCROLL' },
-      { chain: zkSync,    rpcUrl: config.chains.zkSync.rpcUrl,    fallbackRpcUrl: config.chains.zkSync.fallbackRpcUrl,    routerEnvKey: 'ROUTER_ADDRESS_ZKSYNC' },
+      { chain: mainnet,    rpcUrl: config.chains.ethereum.rpcUrl,  fallbackRpcUrl: config.chains.ethereum.fallbackRpcUrl,  routerEnvKey: 'ROUTER_ADDRESS_ETH'          },
+      { chain: base,       rpcUrl: config.chains.base.rpcUrl,      fallbackRpcUrl: config.chains.base.fallbackRpcUrl,      routerEnvKey: 'ROUTER_ADDRESS_BASE'         },
+      { chain: arbitrum,   rpcUrl: config.chains.arbitrum.rpcUrl,  fallbackRpcUrl: config.chains.arbitrum.fallbackRpcUrl,  routerEnvKey: 'ROUTER_ADDRESS_ARB'          },
+      { chain: bsc,        rpcUrl: config.chains.bnb.rpcUrl,       fallbackRpcUrl: config.chains.bnb.fallbackRpcUrl,       routerEnvKey: 'ROUTER_ADDRESS_BSC'          },
+      { chain: polygon,    rpcUrl: config.chains.polygon.rpcUrl,   fallbackRpcUrl: config.chains.polygon.fallbackRpcUrl,   routerEnvKey: 'ROUTER_ADDRESS_POLY'         },
+      { chain: optimism,   rpcUrl: config.chains.optimism.rpcUrl,  fallbackRpcUrl: config.chains.optimism.fallbackRpcUrl,  routerEnvKey: 'ROUTER_ADDRESS_OPT'          },
+      { chain: avalanche,  rpcUrl: config.chains.avalanche.rpcUrl, fallbackRpcUrl: config.chains.avalanche.fallbackRpcUrl, routerEnvKey: 'ROUTER_ADDRESS_AVAX'         },
+      { chain: scroll,     rpcUrl: config.chains.scroll.rpcUrl,    fallbackRpcUrl: config.chains.scroll.fallbackRpcUrl,    routerEnvKey: 'ROUTER_ADDRESS_SCROLL'       },
+      { chain: zkSync,     rpcUrl: config.chains.zkSync.rpcUrl,    fallbackRpcUrl: config.chains.zkSync.fallbackRpcUrl,    routerEnvKey: 'ROUTER_ADDRESS_ZKSYNC'       },
+      // Testnets — read dedicated RPC env vars already present in .env
+      { chain: sepolia,     rpcUrl: process.env.ETH_SEPOLIA_RPC_URL  ?? '', fallbackRpcUrl: '', routerEnvKey: 'ROUTER_ADDRESS_SEPOLIA'      },
+      { chain: baseSepolia, rpcUrl: process.env.BASE_SEPOLIA_RPC_URL ?? '', fallbackRpcUrl: '', routerEnvKey: 'ROUTER_ADDRESS_BASE_SEPOLIA'  },
     ];
 
     await Promise.all(setups.map(async ({ chain, rpcUrl, fallbackRpcUrl }) => {
@@ -235,15 +256,17 @@ export class RelayerManager {
 
   private subscribeToChainEvents() {
     const routerEnvKeys: Record<number, string> = {
-      1:      'ROUTER_ADDRESS_ETH',
-      8453:   'ROUTER_ADDRESS_BASE',
-      42161:  'ROUTER_ADDRESS_ARB',
-      56:     'ROUTER_ADDRESS_BSC',
-      137:    'ROUTER_ADDRESS_POLY',
-      10:     'ROUTER_ADDRESS_OPT',
-      43114:  'ROUTER_ADDRESS_AVAX',
-      534352: 'ROUTER_ADDRESS_SCROLL',
-      324:    'ROUTER_ADDRESS_ZKSYNC',
+      1:        'ROUTER_ADDRESS_ETH',
+      8453:     'ROUTER_ADDRESS_BASE',
+      42161:    'ROUTER_ADDRESS_ARB',
+      56:       'ROUTER_ADDRESS_BSC',
+      137:      'ROUTER_ADDRESS_POLY',
+      10:       'ROUTER_ADDRESS_OPT',
+      43114:    'ROUTER_ADDRESS_AVAX',
+      534352:   'ROUTER_ADDRESS_SCROLL',
+      324:      'ROUTER_ADDRESS_ZKSYNC',
+      11155111: 'ROUTER_ADDRESS_SEPOLIA',
+      84532:    'ROUTER_ADDRESS_BASE_SEPOLIA',
     };
 
     let subscribed = 0;
@@ -266,16 +289,21 @@ export class RelayerManager {
         },
       });
 
-      // StepExecuted — trigger continueStrategy for the next step
+      // StepExecuted — only BRIDGE steps (stepType === 2) need relayer continuation
       const unwatchStep = client.watchContractEvent({
         address: addr,
         abi: ROUTER_ABI,
         eventName: 'StepExecuted',
         onLogs: (logs) => {
           for (const log of logs) {
-            const { strategyId, stepIndex } = log.args as { strategyId: Hex; stepIndex: bigint };
-            console.log(`[Relayer] StepExecuted chain=${chainId} id=${strategyId} step=${stepIndex}`);
-            this.onStepExecuted(strategyId, Number(stepIndex), chainId);
+            const { strategyId, stepIndex, stepType, amountOut } = log.args as {
+              strategyId: Hex;
+              stepIndex: bigint;
+              stepType: number;
+              amountOut: bigint;
+            };
+            console.log(`[Relayer] StepExecuted chain=${chainId} id=${strategyId} step=${stepIndex} type=${stepType}`);
+            this.onStepExecuted(strategyId, Number(stepIndex), stepType, amountOut, chainId);
           }
         },
       });
@@ -350,11 +378,22 @@ export class RelayerManager {
 
   // ─── Event handlers ────────────────────────────────────────────────────────
 
-  private onStepExecuted(strategyId: Hex, stepIndex: number, chainId: number) {
+  private onStepExecuted(strategyId: Hex, stepIndex: number, stepType: number, amountOut: bigint, chainId: number) {
+    // Only BRIDGE steps (stepType === 2) require relayer continuation.
+    // SWAP / LEND / STAKE / SETTLE complete atomically inside executeStrategy.
+    if (stepType !== 2) return;
+
     const jobId = `${strategyId}-${stepIndex}`;
     let job = this.jobs.get(jobId);
 
     if (!job) {
+      // Job not pre-registered — create a synthetic one. Steps will be empty,
+      // which will cause continueStrategy to fail on-chain with StepsHashMismatch.
+      // The correct fix is to POST /strategy/execute with onChainSteps before this fires.
+      console.warn(
+        `[Relayer] BRIDGE StepExecuted for unregistered job id=${strategyId} step=${stepIndex}. ` +
+        'continueStrategy will fail without onChainSteps. Call POST /strategy/execute first.',
+      );
       job = {
         id: jobId,
         strategyId,
@@ -368,10 +407,14 @@ export class RelayerManager {
         quoteExpiresAt: 0,
         reoptimized: false,
         priority: 0,
+        steps: [],
+        bridgedAmount: amountOut,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
       this.jobs.set(jobId, job);
+    } else {
+      job.bridgedAmount = amountOut;
     }
 
     // Allow 2 seconds for chain finality before calling continueStrategy
@@ -395,20 +438,20 @@ export class RelayerManager {
 
   private handleChainFailure(strategyId: Hex, failedStep: number, reason: string) {
     const jobId = `${strategyId}-${failedStep}`;
-    let job = this.jobs.get(jobId);
-    if (!job) {
+    let resolvedJob = this.jobs.get(jobId);
+    if (!resolvedJob) {
       // Create a failure record even if we never saw the job submitted
-      job = {
+      resolvedJob = {
         id: jobId, strategyId, stepIndex: failedStep, bridgeTxHash: '',
         sourceChain: 0, destinationChain: 0,
         status: 'pending', retries: 0, maxRetries: 5,
         quoteExpiresAt: 0, reoptimized: false, priority: 0,
+        steps: [], bridgedAmount: 0n,
         createdAt: Date.now(), updatedAt: Date.now(),
       };
-      this.jobs.set(jobId, job);
+      this.jobs.set(jobId, resolvedJob);
     }
 
-    const resolvedJob = job;
     resolvedJob.lastError = reason;
 
     if (resolvedJob.retries < resolvedJob.maxRetries) {
@@ -490,6 +533,13 @@ export class RelayerManager {
 
     try {
       // Use nonceManager to prevent nonce collision when concurrent jobs run on the same chain
+      if (job.steps.length === 0) {
+        const msg = `continueStrategy aborted: no onChainSteps for strategy=${job.strategyId}. ` +
+          'POST /strategy/execute must include onChainSteps for bridge continuation.';
+        console.error(`[Relayer] ${msg}`);
+        throw new Error(msg);
+      }
+
       const hash = await nonceManager.withNonce(
         publicClient,
         job.destinationChain,
@@ -499,7 +549,7 @@ export class RelayerManager {
             address: routerAddress,
             abi: ROUTER_ABI,
             functionName: 'continueStrategy',
-            args: [job.strategyId, BigInt(nextStepIndex)],
+            args: [job.strategyId, BigInt(nextStepIndex), job.steps, job.bridgedAmount],
             account: relayerAddress,
             nonce,
           });
@@ -649,6 +699,7 @@ export class RelayerManager {
     const map: Record<number, string> = {
       1: 'ETH', 8453: 'BASE', 42161: 'ARB', 56: 'BSC', 137: 'POLY',
       10: 'OPT', 43114: 'AVAX', 534352: 'SCROLL', 324: 'ZKSYNC',
+      11155111: 'SEPOLIA', 84532: 'BASE_SEPOLIA',
     };
     return map[chainId] ?? String(chainId);
   }
