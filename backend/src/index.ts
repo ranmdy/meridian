@@ -144,6 +144,11 @@ const start = async () => {
       executionRegistry.emergencyExit(strategyId);
     });
 
+    // Wire StrategyCompleted on-chain event → execution registry completion
+    relayerManager.onStrategyCompleted((strategyId: string) => {
+      executionRegistry.complete(strategyId);
+    });
+
     // Wire relayer status events → execution registry
     relayerManager.onStatusUpdate((strategyId: string, job: RelayerJob) => {
       switch (job.status) {

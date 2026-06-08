@@ -111,6 +111,7 @@ export class RelayerManager {
   private jobs = new Map<string, RelayerJob>();
   private listeners: StatusListener[] = [];
   private emergencyExitListeners: EmergencyExitListener[] = [];
+  private strategyCompletedListeners: EmergencyExitListener[] = [];
   private reoptimizeCb: ReoptimizeCallback | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private balanceTimer: ReturnType<typeof setInterval> | null = null;
@@ -127,6 +128,11 @@ export class RelayerManager {
   /** Register a callback invoked when an EmergencyExitTriggered on-chain event is received. */
   onEmergencyExit(cb: EmergencyExitListener) {
     this.emergencyExitListeners.push(cb);
+  }
+
+  /** Register a callback invoked when a StrategyCompleted on-chain event is received. */
+  onStrategyCompleted(cb: EmergencyExitListener) {
+    this.strategyCompletedListeners.push(cb);
   }
 
   /**
@@ -151,8 +157,21 @@ export class RelayerManager {
     steps: OnChainStep[] = [],
     bridgedAmount: bigint = 0n,
   ): RelayerJob {
+    const jobId = `${strategyId}-${stepIndex}`;
+    const existing = this.jobs.get(jobId);
+
+    // If onStepExecuted already created a synthetic job, mutate it in-place so that
+    // any retry callbacks that hold a reference to the old object also see the steps.
+    if (existing) {
+      if (steps.length > 0) existing.steps = steps;
+      if (bridgedAmount > 0n) existing.bridgedAmount = bridgedAmount;
+      existing.updatedAt = Date.now();
+      this.notify(strategyId, existing);
+      return existing;
+    }
+
     const job: RelayerJob = {
-      id: `${strategyId}-${stepIndex}`,
+      id: jobId,
       strategyId: strategyId as Hex,
       stepIndex,
       bridgeTxHash,
@@ -417,11 +436,13 @@ export class RelayerManager {
       job.bridgedAmount = amountOut;
     }
 
-    // Allow 2 seconds for chain finality before calling continueStrategy
-    const captured = job;
+    // Allow 2 seconds for chain finality before calling continueStrategy.
+    // Re-lookup from map at fire time to pick up any steps registered by
+    // submitMonitorJob between when the event fired and now.
     setTimeout(() => {
-      this.callContinueStrategy(captured, stepIndex + 1).catch((err) =>
-        this.handleJobError(captured, err instanceof Error ? err.message : String(err)),
+      const latest = this.jobs.get(jobId) ?? job;
+      this.callContinueStrategy(latest, stepIndex + 1).catch((err) =>
+        this.handleJobError(latest, err instanceof Error ? err.message : String(err)),
       );
     }, 2_000);
   }
@@ -434,6 +455,10 @@ export class RelayerManager {
         this.notify(job.strategyId, job);
       }
     }
+    // Directly signal full completion to the execution registry — avoids the
+    // stepIndex >= totalSteps-1 heuristic in onStatusUpdate which fails for
+    // strategies that pause at a non-final BRIDGE step.
+    for (const cb of this.strategyCompletedListeners) cb(strategyId);
   }
 
   private handleChainFailure(strategyId: Hex, failedStep: number, reason: string) {
@@ -514,10 +539,11 @@ export class RelayerManager {
     const suffix = this.chainEnvSuffix(job.destinationChain);
     const routerAddress = process.env[`ROUTER_ADDRESS_${suffix}`] as Address | undefined;
 
-    const relayerAddress = walletClient?.account?.address;
+    const relayerAccount = walletClient?.account;
+    const relayerAddress = relayerAccount?.address;
 
     // Dev mode — no real chain available
-    if (!walletClient || !publicClient || !routerAddress || !relayerAddress) {
+    if (!walletClient || !publicClient || !routerAddress || !relayerAccount || !relayerAddress) {
       console.log(
         `[Relayer] continueStrategy strategyId=${job.strategyId} nextStep=${nextStepIndex} (dev — no tx)`,
       );
@@ -545,17 +571,21 @@ export class RelayerManager {
         job.destinationChain,
         relayerAddress,
         async (nonce) => {
+          // Pass the LocalAccount object (not just the address string) so that
+          // writeContract uses eth_sendRawTransaction (local signing) rather than
+          // eth_sendTransaction (unsupported on Alchemy public endpoints).
           const { request } = await publicClient.simulateContract({
             address: routerAddress,
             abi: ROUTER_ABI,
             functionName: 'continueStrategy',
             args: [job.strategyId, BigInt(nextStepIndex), job.steps, job.bridgedAmount],
-            account: relayerAddress,
+            account: relayerAccount,
             nonce,
           });
 
           return walletClient.writeContract({
             ...(request as Parameters<typeof walletClient.writeContract>[0]),
+            account: relayerAccount,
             nonce,
           });
         },

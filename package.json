@@ -11,7 +11,8 @@
     "typecheck": "pnpm --recursive typecheck",
     "contracts:test": "cd contracts && forge test -vv",
     "contracts:build": "cd contracts && forge build",
-    "contracts:coverage": "cd contracts && forge coverage"
+    "contracts:coverage": "cd contracts && forge coverage",
+    "test:e2e-bridge": "node_modules/.pnpm/tsx@4.22.3/node_modules/tsx/node_modules/.bin/tsx scripts/e2e-bridge-relay.ts"
   },
   "devDependencies": {
     "prettier": "^3.3.3",
