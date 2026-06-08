@@ -16,7 +16,7 @@ import { test, expect, TEST_ADDRESS } from "./fixtures/wallet";
 test.describe("Execute Strategy Flow", () => {
   test("wallet returns tx hash from mock eth_sendTransaction", async ({ mockWalletPage: page }) => {
     await page.goto("/composer");
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
 
     // Simulate a sendTransaction call directly to verify mock wallet works
     const txHash = await page.evaluate(async (addr) => {

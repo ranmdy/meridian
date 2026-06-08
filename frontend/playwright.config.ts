@@ -23,7 +23,7 @@ export default defineConfig({
     ["list"],
   ],
   use: {
-    baseURL: "http://localhost:3001",
+    baseURL: "http://localhost:3000",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
@@ -35,8 +35,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npx next dev --port 3001",
-    url: "http://localhost:3001",
+    command: "npx next dev --port 3000",
+    url: "http://localhost:3000",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     stdout: "pipe",

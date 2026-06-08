@@ -2,13 +2,18 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAccount, useBalance } from 'wagmi';
+import { useAccount, useBalance, useSignMessage, useWriteContract, useChainId } from 'wagmi';
+import { encodePacked, keccak256, parseUnits, decodeEventLog } from 'viem';
 import {
   Tag, PageHead, StepChain, KindBadge,
   Field, Segmented, RiskLevels, Spinner, Modal,
 } from '@/src/components/ui';
 import { CHAINS, ASSETS, SAVED_STRATEGIES, fmtUsd, fmtPct, riskColor } from '@/src/lib/mockData';
 import { api, type Route as ApiRoute, type SimulationResult } from '@/src/lib/api';
+import {
+  ROUTER_ABI, STEP_TYPE, ETH_ADDRESS, TOKEN_DECIMALS, getRouterAddress,
+  TOKEN_ADDRESSES as CONTRACT_TOKEN_ADDRESSES,
+} from '@/src/lib/contracts';
 import { useAuthStore } from '@/src/stores/auth';
 import { useExecutionStore } from '@/src/stores/execution';
 import { useNetworkStore } from '@/src/stores/network';
@@ -312,6 +317,9 @@ export function HomePage() {
   const { setStepMeta } = useExecutionStore();
   const { mode: networkMode } = useNetworkStore();
   const CHAIN_ID: Record<string, number> = CHAIN_IDS[networkMode];
+  const chainId = useChainId();
+  const { signMessage } = useSignMessage();
+  const { writeContractAsync: writeExecute } = useWriteContract();
 
   // Form state
   const [mode, setMode] = useState<'manual' | 'auto'>('manual');
@@ -333,6 +341,10 @@ export function HomePage() {
     : <span style={{ color: 'var(--ink-3)' }}>USD</span>;
   const [dstChain, setDstChain] = useState('Base');
   const [dstWallet, setDstWallet] = useState('');
+  const [dstVerified, setDstVerified] = useState(false);
+  const [dstSig, setDstSig]           = useState<`0x${string}`>('0x');
+  const [dstDeadline, setDstDeadline] = useState(0);
+  const [verifying, setVerifying]     = useState(false);
   const [timeHorizon, setTimeHorizon] = useState('30');
 
   // Route state
@@ -361,6 +373,52 @@ export function HomePage() {
     if (address && !dstWallet) setDstWallet(address);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address]);
+
+  // ── Destination wallet verification ─────────────────────────────────────────
+  async function handleVerify() {
+    if (!dstWallet || dstWallet.length < 42 || !address) return;
+    setVerifying(true);
+    try {
+      const deadline  = BigInt(Math.floor(Date.now() / 1000) + 30 * 60);
+      const srcId     = CHAIN_ID[srcChain];
+      const sigChainId = BigInt(chainId ?? srcId ?? 11155111);
+
+      // Must match _verifyDestination in MeridianRouter.sol exactly:
+      //   keccak256(abi.encodePacked("Meridian destination verification\n",
+      //     "Chain: ", chainId, "\n",
+      //     "I confirm this wallet is mine: ", destination,
+      //     "\nUser: ", user, "\nDeadline: ", deadline))
+      const msgHash = keccak256(
+        encodePacked(
+          ['string','string','uint256','string','string','address','string','address','string','uint256'],
+          [
+            'Meridian destination verification\n',
+            'Chain: ', sigChainId, '\n',
+            'I confirm this wallet is mine: ',
+            dstWallet as `0x${string}`,
+            '\nUser: ',
+            address as `0x${string}`,
+            '\nDeadline: ', deadline,
+          ],
+        ),
+      );
+
+      signMessage(
+        { message: { raw: msgHash } },
+        {
+          onSuccess: (sig) => {
+            setDstSig(sig as `0x${string}`);
+            setDstDeadline(Number(deadline));
+            setDstVerified(true);
+            setVerifying(false);
+          },
+          onError: () => setVerifying(false),
+        },
+      );
+    } catch {
+      setVerifying(false);
+    }
+  }
 
   // Auto-simulate when selected route changes
   useEffect(() => {
@@ -423,12 +481,13 @@ export function HomePage() {
 
   // ── Execute ───────────────────────────────────────────────────────────────
   async function doExecute() {
-    if (!isConnected || !address) { setExecError('Connect your wallet first'); return; }
-    if (!isAuthenticated()) { setExecError('Sign in with your wallet first'); return; }
-    if (quoteExpired) { setExecError('Quote expired — re-optimize'); return; }
+    if (!isConnected || !address)  { setExecError('Connect your wallet first'); return; }
+    if (!isAuthenticated())        { setExecError('Sign in with your wallet first'); return; }
+    if (!dstVerified)              { setExecError('Verify destination wallet first'); return; }
+    if (quoteExpired)              { setExecError('Quote expired — re-optimize'); return; }
 
     const selected = routes[selectedIdx];
-    const raw = rawRoutes[selectedIdx];
+    const raw      = rawRoutes[selectedIdx];
     if (!selected || !raw) return;
 
     const srcId = CHAIN_ID[srcChain];
@@ -437,16 +496,86 @@ export function HomePage() {
 
     setExecBusy(true);
     setExecError(null);
+
     try {
+      // ── Convert USD amount → token units ──────────────────────────────────
+      const TOKEN_PRICE_USD: Record<string, number> = { ETH: 3000, WBTC: 65000, USDC: 1, USDT: 1 };
+      const isEth        = srcAsset === 'ETH';
+      const decimals     = TOKEN_DECIMALS[srcAsset] ?? 18;
+      const priceUsd     = TOKEN_PRICE_USD[srcAsset] ?? 1;
+      const tokenQty     = (parseFloat(amount) || 0) / priceUsd;
+      const srcAmountRaw = parseUnits(tokenQty.toFixed(decimals), decimals);
+      const routerAddr   = getRouterAddress(srcId);
+      const srcAssetAddr = isEth
+        ? (ETH_ADDRESS as `0x${string}`)
+        : (CONTRACT_TOKEN_ADDRESSES[srcAsset]?.[srcId] ?? ETH_ADDRESS as `0x${string}`);
+
+      // ── Map route steps to on-chain format ────────────────────────────────
+      const onChainSteps = raw.steps.map((step) => ({
+        stepType:    STEP_TYPE[step.stepType] ?? 0,
+        protocol:    (step.protocolAddress || ETH_ADDRESS) as `0x${string}`,
+        params:      '0x' as `0x${string}`,
+        minOutput:   0n,
+        outputAsset: ETH_ADDRESS as `0x${string}`,
+      }));
+
+      // ── Call executeStrategy on-chain ─────────────────────────────────────
+      const txHash = await writeExecute({
+        address: routerAddr,
+        abi: ROUTER_ABI,
+        functionName: 'executeStrategy',
+        args: [{
+          sourceAsset:           srcAssetAddr,
+          sourceAmount:          srcAmountRaw,
+          steps:                 onChainSteps,
+          destinationWallet:     dstWallet as `0x${string}`,
+          destinationSignature:  dstSig,
+          deadline:              BigInt(dstDeadline),
+          creator:               ETH_ADDRESS as `0x${string}`,
+        }],
+        value: isEth ? srcAmountRaw : 0n,
+      });
+
+      // ── Poll for receipt to extract the on-chain strategyId ───────────────
+      let strategyId: `0x${string}` = txHash; // fallback
+      const provider = (window as unknown as { ethereum?: { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum;
+      if (provider) {
+        const deadline = Date.now() + 120_000;
+        while (Date.now() < deadline) {
+          try {
+            const receipt = await provider.request({ method: 'eth_getTransactionReceipt', params: [txHash] }) as { logs: Array<{ data: string; topics: string[] }> } | null;
+            if (receipt) {
+              for (const log of receipt.logs) {
+                try {
+                  const decoded = decodeEventLog({ abi: ROUTER_ABI, eventName: 'StrategyStarted', data: log.data as `0x${string}`, topics: log.topics as [`0x${string}`, ...`0x${string}`[]] });
+                  strategyId = decoded.args.strategyId as `0x${string}`;
+                } catch { /* not this log */ }
+              }
+              break;
+            }
+          } catch { /* transient RPC error */ }
+          await new Promise((r) => setTimeout(r, 2_000));
+        }
+      }
+
+      // ── Register execution with backend + redirect ─────────────────────────
       const res = await api.strategy.execute({
-        strategyId: crypto.randomUUID(),
+        strategyId,
         walletAddress: address,
         sourceAsset: srcAsset,
         sourceChain: srcId,
         destinationChain: dstId,
         sourceAmountUsd: parseFloat(amount) || 0,
         stepCount: raw.steps.length,
+        initialTxHash: txHash,
         quoteExpiresAt: quoteExpiresAt ?? undefined,
+        onChainSteps: onChainSteps.map((s) => ({
+          stepType: s.stepType,
+          protocol: s.protocol,
+          params: s.params,
+          minOutput: s.minOutput.toString(),
+          outputAsset: s.outputAsset,
+        })),
       });
       setStepMeta(res.executionId, raw.steps);
       router.push(`/execution/${res.executionId}`);
@@ -554,14 +683,29 @@ export function HomePage() {
                     ))}
                   </select>
                 </Field>
-                <Field label="Wallet" sub={dstWallet === address ? 'Same as connected wallet' : ''}>
-                  <input
-                    className="input mono"
-                    value={dstWallet}
-                    onChange={e => setDstWallet(e.target.value)}
-                    placeholder="0x…"
-                    style={{ fontSize: 12 }}
-                  />
+                <Field
+                  label="Wallet"
+                  sub={dstVerified
+                    ? <span style={{ color: 'var(--good)' }}>✓ Verified</span>
+                    : dstWallet === address ? 'Same as connected wallet' : ''}
+                >
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      className="input mono"
+                      value={dstWallet}
+                      onChange={e => { setDstWallet(e.target.value); setDstVerified(false); setDstSig('0x'); setDstDeadline(0); }}
+                      placeholder="0x…"
+                      style={{ flex: 1, fontSize: 12 }}
+                    />
+                    <button
+                      className={`btn btn-sm ${dstVerified ? 'btn-outline' : 'btn-signal'}`}
+                      onClick={handleVerify}
+                      disabled={!dstWallet || dstWallet.length < 42 || verifying || dstVerified}
+                      style={{ whiteSpace: 'nowrap', minWidth: 72 }}
+                    >
+                      {dstVerified ? '✓ Verified' : verifying ? 'Signing…' : 'Verify'}
+                    </button>
+                  </div>
                 </Field>
               </div>
 

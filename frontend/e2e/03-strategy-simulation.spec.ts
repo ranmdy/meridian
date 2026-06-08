@@ -13,7 +13,7 @@ import { test, expect } from "./fixtures/wallet";
 test.describe("Strategy Simulation Display", () => {
   test("composer page renders step UI", async ({ mockWalletPage: page }) => {
     await page.goto("/composer");
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
 
     // The composer should render some form of strategy builder
     const body = await page.textContent("body");

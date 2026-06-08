@@ -21,7 +21,7 @@ test.describe("Live Tracker", () => {
     // Execution uses dynamic route /execution/[id]
     const mockId = "0x" + "ab".repeat(32);
     await page.goto(`/execution/${mockId}`);
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
     await page.waitForTimeout(2000);
 
     const criticalErrors = errors.filter(
@@ -38,7 +38,7 @@ test.describe("Live Tracker", () => {
   test("execution page has accessible title", async ({ mockWalletPage: page }) => {
     const mockId = "0x" + "ab".repeat(32);
     await page.goto(`/execution/${mockId}`);
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
 
     const title = await page.title();
     expect(title).toBeTruthy();
@@ -49,7 +49,7 @@ test.describe("Live Tracker", () => {
     // Execution uses dynamic route /execution/[id]
     const mockSid = "0x" + "ab".repeat(32);
     await page.goto(`/execution/${mockSid}`);
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
 
     const title = await page.title();
     // Dynamic route should render (may show "not found" content, but not a Next.js 404)
@@ -58,7 +58,7 @@ test.describe("Live Tracker", () => {
 
   test("page does not leak sensitive data in DOM", async ({ mockWalletPage: page }) => {
     await page.goto("/execution");
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
 
     const bodyText = await page.textContent("body");
 
