@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAccount, useBalance, useSignMessage, useWriteContract, useChainId } from 'wagmi';
 import { encodePacked, keccak256, parseUnits, decodeEventLog } from 'viem';
@@ -11,7 +11,7 @@ import {
 import { CHAINS, ASSETS, SAVED_STRATEGIES, fmtUsd, fmtPct, riskColor } from '@/src/lib/mockData';
 import { api, type Route as ApiRoute, type SimulationResult } from '@/src/lib/api';
 import {
-  ROUTER_ABI, STEP_TYPE, ETH_ADDRESS, TOKEN_DECIMALS, getRouterAddress,
+  ROUTER_ABI, ERC20_ABI, STEP_TYPE, ETH_ADDRESS, TOKEN_DECIMALS, getRouterAddress,
   TOKEN_ADDRESSES as CONTRACT_TOKEN_ADDRESSES,
 } from '@/src/lib/contracts';
 import { useAuthStore } from '@/src/stores/auth';
@@ -344,6 +344,18 @@ export function HomePage() {
   const [dstVerified, setDstVerified] = useState(false);
   const [dstSig, setDstSig]           = useState<`0x${string}`>('0x');
   const [dstDeadline, setDstDeadline] = useState(0);
+
+  // Clear destination verification when the connected chain changes — the
+  // signature hash embeds chainId so a different chain invalidates it.
+  const prevChainIdRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (prevChainIdRef.current !== undefined && prevChainIdRef.current !== chainId) {
+      setDstVerified(false);
+      setDstSig('0x' as `0x${string}`);
+      setDstDeadline(0);
+    }
+    prevChainIdRef.current = chainId;
+  }, [chainId]);
   const [verifying, setVerifying]     = useState(false);
   const [timeHorizon, setTimeHorizon] = useState('30');
 
@@ -484,6 +496,10 @@ export function HomePage() {
     if (!isConnected || !address)  { setExecError('Connect your wallet first'); return; }
     if (!isAuthenticated())        { setExecError('Sign in with your wallet first'); return; }
     if (!dstVerified)              { setExecError('Verify destination wallet first'); return; }
+    if (dstDeadline > 0 && dstDeadline < Math.floor(Date.now() / 1000)) {
+      setDstVerified(false); setDstSig('0x' as `0x${string}`); setDstDeadline(0);
+      setExecError('Destination verification expired — please re-verify'); return;
+    }
     if (quoteExpired)              { setExecError('Quote expired — re-optimize'); return; }
 
     const selected = routes[selectedIdx];
@@ -511,15 +527,54 @@ export function HomePage() {
         : (CONTRACT_TOKEN_ADDRESSES[srcAsset]?.[srcId] ?? ETH_ADDRESS as `0x${string}`);
 
       // ── Map route steps to on-chain format ────────────────────────────────
-      const onChainSteps = raw.steps.map((step) => ({
-        stepType:    STEP_TYPE[step.stepType] ?? 0,
-        protocol:    (step.protocolAddress || ETH_ADDRESS) as `0x${string}`,
+      // Testnet: protocol adapters aren't deployed/approved. All steps use SETTLE
+      // (pass-through), so the contract immediately settles USDC to the destination
+      // wallet on the source chain — no bridge wait, no continueStrategy needed.
+      const onChainSteps = raw.steps.map(() => ({
+        stepType:    STEP_TYPE.SETTLE,
+        protocol:    ETH_ADDRESS as `0x${string}`,
         params:      '0x' as `0x${string}`,
         minOutput:   0n,
         outputAsset: ETH_ADDRESS as `0x${string}`,
       }));
 
+      // ── ERC-20 approval if needed ──────────────────────────────────────────
+      const provider = (window as unknown as { ethereum?: { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum;
+      if (!isEth && provider) {
+        const ownerPadded   = address.slice(2).padStart(64, '0');
+        const spenderPadded = routerAddr.slice(2).padStart(64, '0');
+        const allowanceHex = await provider.request({
+          method: 'eth_call',
+          params: [{ to: srcAssetAddr, data: `0xdd62ed3e${ownerPadded}${spenderPadded}` }, 'latest'],
+        }) as string;
+        const currentAllowance = BigInt(allowanceHex ?? '0x0');
+        if (currentAllowance < srcAmountRaw) {
+          const approveTxHash = await writeExecute({
+            address: srcAssetAddr,
+            abi: ERC20_ABI,
+            functionName: 'approve',
+            args: [routerAddr, srcAmountRaw],
+          });
+          // Wait for approval receipt
+          const approveDeadline = Date.now() + 120_000;
+          let approveConfirmed = false;
+          while (Date.now() < approveDeadline) {
+            const approveReceipt = await provider.request({ method: 'eth_getTransactionReceipt', params: [approveTxHash] }) as { status: string } | null;
+            if (approveReceipt) {
+              if (approveReceipt.status !== '0x1') throw new Error('USDC approval transaction failed');
+              approveConfirmed = true;
+              break;
+            }
+            await new Promise((r) => setTimeout(r, 2_000));
+          }
+          if (!approveConfirmed) throw new Error('USDC approval not confirmed after 2 minutes');
+        }
+      }
+
       // ── Call executeStrategy on-chain ─────────────────────────────────────
+      // Explicit gas cap prevents Alchemy "gas limit too high" when eth_estimateGas
+      // returns near-block-limit due to a simulation revert (e.g. InvalidDestinationSignature).
+      // The actual execution uses << 500k gas for a 1-2 step testnet strategy.
       const txHash = await writeExecute({
         address: routerAddr,
         abi: ROUTER_ABI,
@@ -534,27 +589,44 @@ export function HomePage() {
           creator:               ETH_ADDRESS as `0x${string}`,
         }],
         value: isEth ? srcAmountRaw : 0n,
+        gas: 500_000n,
       });
 
       // ── Poll for receipt to extract the on-chain strategyId ───────────────
       let strategyId: `0x${string}` = txHash; // fallback
-      const provider = (window as unknown as { ethereum?: { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum;
       if (provider) {
         const deadline = Date.now() + 120_000;
+        let receiptFound = false;
         while (Date.now() < deadline) {
           try {
-            const receipt = await provider.request({ method: 'eth_getTransactionReceipt', params: [txHash] }) as { logs: Array<{ data: string; topics: string[] }> } | null;
+            const receipt = await provider.request({ method: 'eth_getTransactionReceipt', params: [txHash] }) as { status: string; logs: Array<{ data: string; topics: string[] }> } | null;
             if (receipt) {
+              receiptFound = true;
+              if (receipt.status !== '0x1') {
+                throw new Error('Transaction reverted on-chain. Check your wallet for details (e.g. deadline expired, insufficient funds).');
+              }
               for (const log of receipt.logs) {
                 try {
                   const decoded = decodeEventLog({ abi: ROUTER_ABI, eventName: 'StrategyStarted', data: log.data as `0x${string}`, topics: log.topics as [`0x${string}`, ...`0x${string}`[]] });
                   strategyId = decoded.args.strategyId as `0x${string}`;
                 } catch { /* not this log */ }
               }
+              if (strategyId === txHash) {
+                // Tx succeeded but no StrategyStarted event found.
+                // Either wrong contract address or wrong network.
+                console.warn('[Meridian] StrategyStarted not found in receipt. Router:', routerAddr, 'chainId:', srcId, 'logs:', receipt.logs.length);
+                throw new Error(`Transaction succeeded but StrategyStarted event not found. Make sure your wallet is on the correct network (chainId ${srcId}) and the router is deployed at ${routerAddr}.`);
+              }
               break;
             }
-          } catch { /* transient RPC error */ }
+          } catch (pollErr) {
+            if ((pollErr as Error).message?.includes('reverted')) throw pollErr;
+            /* transient RPC error — keep polling */
+          }
           await new Promise((r) => setTimeout(r, 2_000));
+        }
+        if (!receiptFound) {
+          throw new Error('Transaction not confirmed after 2 minutes. It may have been dropped — try again with higher gas.');
         }
       }
 

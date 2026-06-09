@@ -6,7 +6,9 @@ const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? 'dev-place
 
 export const wagmiConfig = createConfig({
   chains: [mainnet, base, arbitrum, bsc, polygon, sepolia, baseSepolia],
-  multiInjectedProviderDiscovery: false,
+  // Enable EIP-6963 multi-wallet discovery so users can pick MetaMask specifically
+  // when multiple wallets (e.g. Pelagus, Rabby) are installed
+  multiInjectedProviderDiscovery: true,
   connectors: [
     injected(),
     walletConnect({ projectId }),

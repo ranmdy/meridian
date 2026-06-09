@@ -116,9 +116,14 @@ export async function executionRoutes(
       ? 10
       : 0;
 
-    // Submit initial monitor job to relayer so it watches the bridge tx
-    if (initialTxHash) {
-      const steps: OnChainStep[] = (parsed.data.onChainSteps ?? []).map((s) => ({
+    // Submit initial monitor job to relayer only when there are real BRIDGE steps.
+    // If all steps are SETTLE (testnet pass-through), the contract settles immediately
+    // on the source chain — no continueStrategy call needed.
+    const rawSteps = (parsed.data.onChainSteps ?? []);
+    const hasBridgeStep = rawSteps.some((s) => s.stepType === 2); // StepType.BRIDGE = 2
+
+    if (initialTxHash && hasBridgeStep) {
+      const steps: OnChainStep[] = rawSteps.map((s) => ({
         stepType: s.stepType,
         protocol: s.protocol as `0x${string}`,
         params: s.params as `0x${string}`,
@@ -137,8 +142,8 @@ export async function executionRoutes(
         steps,
       );
     } else {
-      // Demo/testnet mode: no on-chain tx yet — simulate execution progress so the
-      // tracking page shows realistic step advancement instead of staying "pending".
+      // No BRIDGE steps (or no tx hash): simulate execution progress so the
+      // tracking page shows realistic step advancement.
       simulateExecution(strategyId, stepCount);
     }
 

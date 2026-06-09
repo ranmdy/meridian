@@ -683,8 +683,15 @@ export class RelayerManager {
   }
 
   private async checkBridgeConfirmation(job: RelayerJob): Promise<boolean> {
-    const client = this.publicClients.get(job.destinationChain);
-    if (!client || !job.bridgeTxHash) return true; // dev mode always confirmed
+    if (!job.bridgeTxHash) return true; // dev mode always confirmed
+
+    // The initialTxHash (bridgeTxHash) is the executeStrategy tx submitted on sourceChain.
+    // Check it against the source chain, not the destination chain.
+    // For cross-chain bridges the bridge completion on destinationChain is detected via
+    // on-chain events (StepExecuted / StrategyCompleted) rather than this poll.
+    const chainToCheck = job.sourceChain || job.destinationChain;
+    const client = this.publicClients.get(chainToCheck);
+    if (!client) return true; // no client configured — treat as confirmed (dev mode)
 
     try {
       const receipt = await client.getTransactionReceipt({ hash: job.bridgeTxHash as Hex });

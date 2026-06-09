@@ -169,7 +169,11 @@ export function ExecutionPage({ id }: { id: string }) {
       void poll();
     }
 
-    // Try WebSocket first, fall back to polling
+    // Always poll — simulateExecution updates the registry directly without
+    // sending WebSocket notifications, so the WS alone would miss those updates.
+    startPolling();
+
+    // WebSocket for real-time relayer updates on top of polling
     const wsUrl = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001').replace(/^http/, 'ws');
     try {
       const ws = new WebSocket(`${wsUrl}/ws/strategy/${id}`);
@@ -178,21 +182,24 @@ export function ExecutionPage({ id }: { id: string }) {
       ws.onmessage = () => {
         void api.strategy.status(id).then(s => { if (active) setAndStore(s); }).catch(() => {});
       };
-      ws.onerror = () => { ws.close(); startPolling(); };
-      ws.onclose = () => { if (active) startPolling(); };
-    } catch {
-      startPolling();
-    }
-
-    // Initial fetch regardless
-    void api.strategy.status(id)
-      .then(s => { if (active) setAndStore(s); })
-      .catch(err => { if (active) setError(err instanceof Error ? err.message : 'Status fetch failed'); });
+      ws.onerror = () => ws.close();
+      ws.onclose = () => {};  // polling already running
+    } catch { /* polling already running */ }
 
     return () => {
       active = false;
       if (timerRef.current) clearTimeout(timerRef.current);
-      if (wsRef.current) wsRef.current.close();
+      const ws = wsRef.current;
+      if (ws) {
+        // If still CONNECTING, wait for open then close — avoids the
+        // "WebSocket closed before connection established" console error
+        // caused by React StrictMode double-invoking effects in dev.
+        if (ws.readyState === WebSocket.CONNECTING) {
+          ws.onopen = () => ws.close();
+        } else {
+          ws.close();
+        }
+      }
     };
   }, [id, setAndStore]);
 
