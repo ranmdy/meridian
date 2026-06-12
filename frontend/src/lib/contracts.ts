@@ -174,15 +174,15 @@ export function getRouterAddress(chainId: number): `0x${string}` {
 // See backend/src/services/strategy-engine/graph.ts for the canonical names.
 export const ADAPTER_ADDRESSES: Record<string, Partial<Record<number, `0x${string}`>>> = {
   'aave_v3': {
-    11155111: '0x37D4fdBfBa638E82e5A9798EEd635161710153BA',
+    11155111: '0xB6E8f0a7B0957C7A22F59094724D94F65816D9fD',
   },
   'uniswap_v3': {
-    11155111: '0xF7Bd43ccd4b621784fec8Af1d3e243C846D1D4e8',
-    84532:    '0xB19208BBb71037DCe838abC18aD973dBD3CE238E',
+    11155111: '0x587D5E40EaC0aE7564011219f4776DD56fbC3408',
+    84532:    '0xf09d720978cd11e9eb45787d87274a7c049b9ed7',
   },
   'across': {
-    11155111: '0x9A7fF88a6f6337D3A2F91C1a3f1098ebFC3f89F0',
-    84532:    '0x4859a9648894cE9b2094d8cC7b530c26864d29A2',
+    11155111: '0x4bE8E4f041a82c0Fd388bA63574c0bD2c9198a1c',
+    84532:    '0xe9e8dd4312fea03c09e12e633cd5ac45b2507702',
   },
 };
 
