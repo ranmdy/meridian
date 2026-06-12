@@ -8,6 +8,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {IMeridianRouter} from "./IMeridianRouter.sol";
+import {IProtocolAdapter} from "./IProtocolAdapter.sol";
 
 /// @title MeridianRouter
 /// @notice Non-custodial cross-chain DeFi strategy executor.
@@ -398,8 +399,20 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
             Step calldata step = steps[i];
 
             if (step.stepType == StepType.BRIDGE) {
+                // If a bridge adapter is deployed, call it to deposit tokens into the
+                // bridge protocol. Otherwise, tokens stay in the router for off-chain handling.
+                if (step.protocol != address(0) && approvedProtocols[step.protocol]) {
+                    (bool bridgeOk,) = _callAdapter(step, currentAmount, state.currentAsset);
+                    if (!bridgeOk) {
+                        _failStrategy(strategyId, state, i, currentAmount, "BridgeDepositFailed");
+                        return;
+                    }
+                    // Tokens left the router — zero the tracked amount so emergencyExit
+                    // doesn't try to return tokens that are now in the bridge protocol.
+                    currentAmount = 0;
+                }
+
                 // Pause here — relayer will call continueStrategy after confirmation.
-                // Update state so emergencyExit during the bridge wait returns the correct amount.
                 state.currentStep = i + 1;
                 state.currentAmount = currentAmount;
                 if (step.outputAsset != address(0)) {
@@ -415,7 +428,7 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
                 revert ProtocolNotApproved(step.protocol);
             }
 
-            (bool stepOk, uint256 amountOut) = _executeStep(strategyId, i, step, currentAmount);
+            (bool stepOk, uint256 amountOut) = _executeStep(strategyId, i, step, currentAmount, state.currentAsset);
 
             if (!stepOk) {
                 _failStrategy(strategyId, state, i, currentAmount, "StepFailed");
@@ -423,7 +436,9 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
             }
 
             if (amountOut < step.minOutput) {
-                _failStrategy(strategyId, state, i, currentAmount, "SlippageExceeded");
+                // Refund amountOut (what the adapter actually returned), not currentAmount
+                // (which was consumed by the adapter). The router holds amountOut post-step.
+                _failStrategy(strategyId, state, i, amountOut, "SlippageExceeded");
                 return;
             }
 
@@ -475,69 +490,77 @@ contract MeridianRouter is IMeridianRouter, ReentrancyGuard, Ownable2Step {
     }
 
     /// @notice Dispatch a single step to the appropriate executor.
+    /// @param currentAsset The working asset before this step — transferred to the adapter.
     /// @return ok        True if the step succeeded.
     /// @return amountOut The amount of output asset received.
     function _executeStep(
         bytes32, /* strategyId */
         uint256, /* stepIndex */
         Step calldata step,
-        uint256 amountIn
+        uint256 amountIn,
+        address currentAsset
     ) internal returns (bool ok, uint256 amountOut) {
         if (step.stepType == StepType.SWAP) {
-            return _executeSwap(step, amountIn);
+            return _callAdapter(step, amountIn, currentAsset);
         } else if (step.stepType == StepType.LEND) {
-            return _executeLend(step, amountIn);
+            return _callAdapter(step, amountIn, currentAsset);
         } else if (step.stepType == StepType.STAKE) {
-            return _executeStake(step, amountIn);
+            return _callAdapter(step, amountIn, currentAsset);
         } else if (step.stepType == StepType.SETTLE) {
             return (true, amountIn); // pass-through; real settlement happens in _settle
         }
         revert UnsupportedStepType();
     }
 
-    /// @dev Phase 0 stub — replaced by Uniswap/Curve adapters in Phase 1.
-    ///      Caller (via _executeStepsFrom) must have verified approvedProtocols[step.protocol].
-    function _executeSwap(Step calldata step, uint256 amountIn)
-        internal
-        returns (bool, uint256)
-    {
-        // External call to an allowlisted protocol adapter — approvedProtocols enforced in _executeStep.
-        // slither-disable-next-line calls-loop
-        (bool ok, bytes memory result) = step.protocol.call(
-            abi.encodePacked(step.params, amountIn)
-        );
-        if (!ok) return (false, 0);
-        return (true, abi.decode(result, (uint256)));
-    }
-
-    /// @dev Phase 0 stub — replaced by Aave/Compound adapters in Phase 1.
-    ///      Caller (via _executeStepsFrom) must have verified approvedProtocols[step.protocol].
-    function _executeLend(Step calldata step, uint256 amountIn)
-        internal
-        returns (bool, uint256)
-    {
-        // External call to an allowlisted protocol adapter — approvedProtocols enforced in _executeStep.
-        // slither-disable-next-line calls-loop
-        (bool ok, bytes memory result) = step.protocol.call(
-            abi.encodePacked(step.params, amountIn)
-        );
-        if (!ok) return (false, 0);
-        return (true, abi.decode(result, (uint256)));
-    }
-
-    /// @dev Phase 0 stub — replaced by GMX/Pendle adapters in Phase 1.
-    ///      Caller (via _executeStepsFrom) must have verified approvedProtocols[step.protocol].
-    function _executeStake(Step calldata step, uint256 amountIn)
-        internal
-        returns (bool, uint256)
-    {
-        // External call to an allowlisted protocol adapter — approvedProtocols enforced in _executeStep.
-        // slither-disable-next-line calls-loop
-        (bool ok, bytes memory result) = step.protocol.call(
-            abi.encodePacked(step.params, amountIn)
-        );
-        if (!ok) return (false, 0);
-        return (true, abi.decode(result, (uint256)));
+    /// @notice Approve a protocol adapter and call its execute function.
+    ///
+    /// @dev This is the single external-call path for all adapter-backed step types
+    ///      (SWAP, LEND, STAKE). The call flow is:
+    ///        1. Approve `step.protocol` for `amountIn` of `currentAsset` (forceApprove).
+    ///        2. Call `IProtocolAdapter.execute(currentAsset, amountIn, step.params)`.
+    ///        3. Inside execute, the adapter pulls tokens via safeTransferFrom, performs
+    ///           the protocol action, and returns output tokens to this router.
+    ///
+    ///      Using approve-then-call (not transfer-then-call) ensures that if the adapter
+    ///      reverts at any point, the entire call frame reverts atomically — including
+    ///      the transferFrom — so tokens never leave the router on failure.
+    ///
+    ///      Caller (via _executeStepsFrom) must have already verified approvedProtocols[step.protocol].
+    ///      nonReentrant on executeStrategy/continueStrategy prevents reentrancy into this function.
+    ///
+    /// @param step         The strategy step containing the adapter address and params.
+    /// @param amountIn     Working amount to pass to the adapter.
+    /// @param currentAsset The ERC-20 token being passed in (address(0) = native ETH).
+    // slither-disable-next-line calls-loop
+    function _callAdapter(
+        Step calldata step,
+        uint256 amountIn,
+        address currentAsset
+    ) internal returns (bool, uint256) {
+        if (currentAsset == address(0)) {
+            // Native ETH: send value with the call. execute() is payable.
+            // slither-disable-next-line arbitrary-send-eth
+            (bool ok, bytes memory result) = step.protocol.call{value: amountIn}(
+                abi.encodeCall(IProtocolAdapter.execute, (currentAsset, amountIn, step.params))
+            );
+            if (!ok || result.length < 32) return (false, 0);
+            return (true, abi.decode(result, (uint256)));
+        } else {
+            // ERC-20: approve adapter, then call execute.
+            // Adapter pulls tokens inside execute via safeTransferFrom.
+            // If execute reverts, the transferFrom is also reverted — tokens stay here.
+            IERC20(currentAsset).forceApprove(step.protocol, amountIn);
+            // slither-disable-next-line calls-loop
+            (bool ok, bytes memory result) = step.protocol.call(
+                abi.encodeCall(IProtocolAdapter.execute, (currentAsset, amountIn, step.params))
+            );
+            if (!ok || result.length < 32) {
+                // Reset leftover approval on failure.
+                IERC20(currentAsset).forceApprove(step.protocol, 0);
+                return (false, 0);
+            }
+            return (true, abi.decode(result, (uint256)));
+        }
     }
 
     /// @notice Transfer final amount to the verified destination wallet.

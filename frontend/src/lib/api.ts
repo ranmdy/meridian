@@ -257,7 +257,10 @@ export const api = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(strategy),
-      }).then((r) => r.json() as Promise<MarketplaceStrategy>),
+      }).then(async (r) => {
+        if (!r.ok) { const e = await r.json().catch(() => ({ error: 'Unknown error' })); throw new Error(e.error ?? `HTTP ${r.status}`); }
+        return r.json() as Promise<MarketplaceStrategy>;
+      }),
   },
   quotes: {
     swap: (chain: number, from: string, to: string, protocol = 'uniswap_v3') =>
@@ -344,15 +347,21 @@ export const api = {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ tier, name, environment }),
-      }).then((r) => r.json() as Promise<{
-        id: string; rawKey: string; tier: string; name: string;
-        environment: string; requestsPerMinute: number; requestsPerMonth: number;
-        createdAt: number; _warning: string;
-      }>),
+      }).then(async (r) => {
+        if (!r.ok) { const e = await r.json().catch(() => ({ error: 'Unknown error' })); throw new Error(e.error ?? `HTTP ${r.status}`); }
+        return r.json() as Promise<{
+          id: string; rawKey: string; tier: string; name: string;
+          environment: string; requestsPerMinute: number; requestsPerMonth: number;
+          createdAt: number; _warning: string;
+        }>;
+      }),
     revoke: (id: string, token: string) =>
       fetch(`${BASE_URL}/api-keys/${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
-      }).then((r) => r.json() as Promise<{ ok: boolean; id: string; revoked: boolean }>),
+      }).then(async (r) => {
+        if (!r.ok) { const e = await r.json().catch(() => ({ error: 'Unknown error' })); throw new Error(e.error ?? `HTTP ${r.status}`); }
+        return r.json() as Promise<{ ok: boolean; id: string; revoked: boolean }>;
+      }),
   },
 };

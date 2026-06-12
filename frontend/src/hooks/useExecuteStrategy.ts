@@ -7,10 +7,10 @@ import {
   useAccount,
   useReadContract,
 } from 'wagmi';
-import { parseUnits, decodeEventLog, maxUint256 } from 'viem';
+import { parseUnits, decodeEventLog, maxUint256, encodeAbiParameters } from 'viem';
 import { useStrategyStore } from '@/src/stores/strategy';
 import { useExecutionStore } from '@/src/stores/execution';
-import { api } from '@/src/lib/api';
+import { api, type RouteStep } from '@/src/lib/api';
 import {
   ROUTER_ABI,
   ERC20_ABI,
@@ -18,7 +18,9 @@ import {
   ETH_ADDRESS,
   TOKEN_ADDRESSES,
   TOKEN_DECIMALS,
+  DESTINATION_TOKEN_ADDRESSES,
   getRouterAddress,
+  getAdapterAddress,
 } from '@/src/lib/contracts';
 
 // Dev-only: approximate prices used to convert USD → token units.
@@ -199,13 +201,9 @@ export function useExecuteStrategy() {
         ? BigInt(destinationDeadline)
         : BigInt(Math.floor(Date.now() / 1000) + 30 * 60);
 
-      const steps = selectedRoute.steps.map((step) => ({
-        stepType: STEP_TYPE[step.stepType] ?? 0,
-        protocol: (step.protocolAddress || ETH_ADDRESS) as `0x${string}`,
-        params: '0x' as `0x${string}`,
-        minOutput: 0n, // TODO: replace with estimatedOutput × (1 − slippage) pre-mainnet
-        outputAsset: ETH_ADDRESS as `0x${string}`, // address(0) = same asset as input
-      }));
+      const steps = selectedRoute.steps.map((step) =>
+        buildOnChainStep(step, chainId, decimals),
+      );
 
       // Capture steps so the backend registration call below can include them
       pendingStepsRef.current = steps;
@@ -265,7 +263,172 @@ export function useExecuteStrategy() {
   };
 }
 
-// ─── Helper ───────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Default Uniswap V3 fee tier (0.3%) when the backend doesn't specify one. */
+const DEFAULT_UNI_FEE = 3000;
+
+/** Default slippage tolerance in bps when the backend step has 0 or missing. */
+const DEFAULT_SLIPPAGE_BPS = 50; // 0.5%
+
+type OnChainStep = {
+  stepType: number;
+  protocol: `0x${string}`;
+  params: `0x${string}`;
+  minOutput: bigint;
+  outputAsset: `0x${string}`;
+};
+
+/**
+ * Converts a backend RouteStep into the on-chain Step struct the router expects.
+ *
+ * - Looks up the deployed adapter for step.protocol on chainId.
+ * - If an adapter exists → uses the real step type + encoded params.
+ * - If no adapter exists → falls back to SETTLE (pass-through).
+ */
+export function buildOnChainStep(
+  step: RouteStep,
+  chainId: number,
+  sourceDecimals: number,
+): OnChainStep {
+  const adapterAddr = getAdapterAddress(step.protocol, chainId);
+
+  // Resolve the output token address for this step (on the source chain for non-bridge)
+  const outputTokenAddr = resolveTokenAddress(step.toAsset, chainId);
+
+  // Calculate minOutput with slippage protection.
+  // Backend returns estimatedOutput in USD — convert to token units first.
+  const slippageBps = step.slippageBps > 0 ? step.slippageBps : DEFAULT_SLIPPAGE_BPS;
+  const outputDecimals = TOKEN_DECIMALS[step.toAsset] ?? sourceDecimals;
+  const minOutput = step.estimatedOutput > 0
+    ? usdToTokenMinOutput(step.estimatedOutput, step.toAsset, slippageBps, outputDecimals)
+    : 0n;
+
+  // No adapter deployed → fall back to SETTLE
+  if (!adapterAddr) {
+    return {
+      stepType: STEP_TYPE['SETTLE'],
+      protocol: ETH_ADDRESS as `0x${string}`,
+      params: '0x' as `0x${string}`,
+      minOutput: 0n,
+      outputAsset: ETH_ADDRESS as `0x${string}`,
+    };
+  }
+
+  // BRIDGE steps: use BRIDGE step type and encode bridge-specific params.
+  // The outputAsset should be the token on the DESTINATION chain.
+  if (step.stepType === 'BRIDGE') {
+    const destChainId = step.toChain;
+    const destTokenAddr = resolveDestinationTokenAddress(step.toAsset, destChainId);
+    const destRouterAddr = getRouterAddress(destChainId);
+    const params = encodeBridgeParams(destRouterAddr, destTokenAddr, destChainId, minOutput);
+
+    return {
+      stepType: STEP_TYPE['BRIDGE'],
+      protocol: adapterAddr,
+      params,
+      minOutput,
+      outputAsset: destTokenAddr,
+    };
+  }
+
+  // Encode protocol-specific params (SWAP/LEND/STAKE)
+  const params = encodeAdapterParams(step, chainId, minOutput);
+
+  return {
+    stepType: STEP_TYPE[step.stepType] ?? STEP_TYPE['SETTLE'],
+    protocol: adapterAddr,
+    params,
+    minOutput,
+    outputAsset: outputTokenAddr,
+  };
+}
+
+/**
+ * Encode the `bytes params` field for each adapter type.
+ *
+ * - uniswap_v3: abi.encode(address tokenOut, uint24 fee, uint256 amountOutMinimum)
+ * - aave_v3:    empty (adapter ignores params)
+ * - default:    empty
+ */
+function encodeAdapterParams(
+  step: RouteStep,
+  chainId: number,
+  minOutput: bigint,
+): `0x${string}` {
+  if (step.protocol === 'uniswap_v3') {
+    const tokenOut = resolveTokenAddress(step.toAsset, chainId);
+    return encodeAbiParameters(
+      [
+        { name: 'tokenOut', type: 'address' },
+        { name: 'fee', type: 'uint24' },
+        { name: 'amountOutMinimum', type: 'uint256' },
+      ],
+      [tokenOut, DEFAULT_UNI_FEE, minOutput],
+    );
+  }
+
+  // aave_v3, compound_v3, etc. — adapters that ignore params
+  return '0x' as `0x${string}`;
+}
+
+/**
+ * Encode Across bridge adapter params.
+ * Layout: abi.encode(address recipient, address outputToken, uint256 destinationChainId,
+ *                    uint256 outputAmount, uint32 fillDeadline)
+ */
+function encodeBridgeParams(
+  recipient: `0x${string}`,
+  outputToken: `0x${string}`,
+  destinationChainId: number,
+  outputAmount: bigint,
+): `0x${string}` {
+  // 30-minute fill deadline for Across relayers
+  const fillDeadline = Math.floor(Date.now() / 1000) + 30 * 60;
+
+  return encodeAbiParameters(
+    [
+      { name: 'recipient', type: 'address' },
+      { name: 'outputToken', type: 'address' },
+      { name: 'destinationChainId', type: 'uint256' },
+      { name: 'outputAmount', type: 'uint256' },
+      { name: 'fillDeadline', type: 'uint32' },
+    ],
+    [recipient, outputToken, BigInt(destinationChainId), outputAmount, fillDeadline],
+  );
+}
+
+/** Resolve a token to its address on the destination chain (for bridge output). */
+function resolveDestinationTokenAddress(symbol: string, destChainId: number): `0x${string}` {
+  return (DESTINATION_TOKEN_ADDRESSES[symbol]?.[destChainId] as `0x${string}`)
+    ?? (TOKEN_ADDRESSES[symbol]?.[destChainId] as `0x${string}`)
+    ?? (ETH_ADDRESS as `0x${string}`);
+}
+
+/** Resolve a token symbol to its on-chain address for the given chain. */
+function resolveTokenAddress(symbol: string, chainId: number): `0x${string}` {
+  return (TOKEN_ADDRESSES[symbol]?.[chainId] as `0x${string}`) ?? (ETH_ADDRESS as `0x${string}`);
+}
+
+/**
+ * Convert a USD-denominated estimated output to raw token units with slippage.
+ * Backend returns estimatedOutput in USD, so we divide by token price first.
+ */
+function usdToTokenMinOutput(
+  estimatedOutputUsd: number,
+  outputSymbol: string,
+  slippageBps: number,
+  decimals: number,
+): bigint {
+  // Strip aToken prefix (aETH → ETH, aUSDC → USDC) for price lookup
+  const baseSymbol = outputSymbol.startsWith('a') && outputSymbol.length > 1
+    ? outputSymbol.slice(1)
+    : outputSymbol;
+  const tokenPrice = TOKEN_PRICE_USD[baseSymbol] ?? TOKEN_PRICE_USD[outputSymbol] ?? 1;
+  const tokenAmount = estimatedOutputUsd / tokenPrice;
+  const afterSlippage = tokenAmount * (1 - slippageBps / 10_000);
+  return parseUnits(Math.max(0, afterSlippage).toFixed(decimals), decimals);
+}
 
 type EthereumProvider = {
   request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;

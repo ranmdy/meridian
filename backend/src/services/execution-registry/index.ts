@@ -130,7 +130,8 @@ class ExecutionRegistry {
       sourceAmountUsd: opts.sourceAmountUsd,
       totalSteps: stepCount,
       startedAt: execution.startedAt,
-    }).then(() => insertExecutionSteps(strategyId, stepCount));
+    }).then(() => insertExecutionSteps(strategyId, stepCount))
+      .catch((err) => console.error('[ExecutionRegistry] Failed to persist execution:', err));
 
     console.log(
       `[ExecutionRegistry] Registered execution strategy=${strategyId} wallet=${wallet} steps=${stepCount}`,

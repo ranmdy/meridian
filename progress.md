@@ -7,6 +7,241 @@
 
 ---
 
+## Session Log
+
+Reverse-chronological record of every working session — what was built, what broke, what's open.
+
+---
+
+### 2026-06-09 — Protocol Adapter Architecture (real on-chain execution)
+
+**Context:** After the previous session got the full E2E flow working on Sepolia (executeStrategy → StrategyStarted → simulateExecution → "Strategy complete"), we confirmed that the on-chain transaction was real but the route was fake — all steps used SETTLE (pass-through) so no protocol actually ran. This session implements the adapter layer so strategies truly execute through the selected protocols (Aave, Uniswap, Across, etc.).
+
+---
+
+#### What was built
+
+**1. `contracts/src/IProtocolAdapter.sol` — Standard adapter interface**
+- Defines `execute(address asset, uint256 amountIn, bytes calldata params) returns (uint256 amountOut)`.
+- Execution contract: router transfers `amountIn` of `asset` to the adapter, then calls `execute`. Adapter performs the protocol action and ensures output tokens return to `msg.sender` (the router) — either via `onBehalfOf`/`recipient = router` in the protocol call, or an explicit `safeTransfer` back.
+- Adapters are NOT the underlying protocols (Aave Pool, Uniswap Router). They are thin wrappers deployed by Meridian that implement this interface and translate it to the protocol's native API.
+
+**2. `contracts/src/adapters/AaveV3LendAdapter.sol` — First real adapter**
+- Deposits `amountIn` of ERC-20 asset into Aave V3. Aave mints aTokens directly to the router (`onBehalfOf = msg.sender`). Returns `amountIn` as `amountOut` (1:1 at deposit time).
+- Constructor takes `_pool` (Aave V3 Pool proxy address, varies by chain) and `_router` (MeridianRouter address).
+- `execute()` is guarded by `if (msg.sender != router) revert NotRouter()` — only the approved router can call it.
+- Uses exact-amount `safeIncreaseAllowance` (not `type(uint256).max`) to limit protocol exposure.
+- **Aave V3 Pool addresses:**
+  - Sepolia: `0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951`
+  - Mainnet: `0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2`
+  - Base: `0xA238Dd80C259a72e81d7e4664a9801593F98d1c5`
+  - Arbitrum/Polygon: `0x794a61358D6845594F94dc1DB02A252b5b4814aD`
+
+**3. `contracts/src/MeridianRouter.sol` — Critical token-transfer fix**
+
+The Phase-0 stubs (`_executeSwap`, `_executeLend`, `_executeStake`) had a fundamental architecture gap:
+
+```solidity
+// OLD (broken) — calls adapter but never sends it the tokens
+(bool ok, bytes memory result) = step.protocol.call(
+    abi.encodePacked(step.params, amountIn)
+);
+```
+
+Tokens stayed in the router. Any adapter called this way would have nothing to work with.
+
+**Fix:** Replaced all three stub functions with a single `_callAdapter` that:
+1. Transfers `amountIn` of the **current working asset** (`state.currentAsset`) to the adapter via `safeTransfer`.
+2. Calls `IProtocolAdapter.execute(currentAsset, amountIn, step.params)` using `abi.encodeCall` (type-safe, no raw selector).
+3. Decodes the returned `amountOut`.
+
+This also required threading `currentAsset` down to `_executeStep` (new parameter), which reads it from `state.currentAsset` in `_executeStepsFrom`.
+
+For native ETH steps, the ETH is sent as `value` with the call instead of `safeTransfer`.
+
+```solidity
+// NEW (correct)
+IERC20(currentAsset).safeTransfer(step.protocol, amountIn);
+(bool ok, bytes memory result) = step.protocol.call(
+    abi.encodeCall(IProtocolAdapter.execute, (currentAsset, amountIn, step.params))
+);
+```
+
+**4. `contracts/script/DeployAdapters.s.sol` — Adapter deployment script**
+- Reads `PRIVATE_KEY`, `ROUTER_ADDRESS`, `AAVE_V3_POOL` from `.env`.
+- Deploys `AaveV3LendAdapter`, calls `router.setProtocolApproved(adapter, true)` to add it to the allowlist.
+- One script handles deploy + approval atomically — no manual Etherscan calls needed.
+- Printout: Chain ID, router, pool, adapter address.
+
+**5. `frontend/src/lib/contracts.ts` — `ADAPTER_ADDRESSES` + `getAdapterAddress()`**
+- Added `ADAPTER_ADDRESSES: Record<string, Partial<Record<number, address>>>` — maps protocol name (as returned by backend route optimizer) → chain ID → deployed adapter address.
+- `getAdapterAddress(protocolName, chainId)` returns the adapter address or `null` if not yet deployed.
+- Aave V3 entry is present with a placeholder comment for the Sepolia address to be filled after deployment.
+
+**6. `frontend/src/components/pages/HomePage.tsx` — Smart step mapping**
+
+Replaced the hardcoded "all-SETTLE" mapping with logic that:
+- For each backend route step, looks up `getAdapterAddress(s.protocol, srcId)`.
+- If adapter exists → use the real step type (`LEND`, `SWAP`, `STAKE`) with the adapter address.
+- If no adapter deployed yet → fall back to `SETTLE` (pass-through), same behavior as before.
+- `BRIDGE` steps are always left as-is (they rely on the off-chain relayer, not adapter contracts).
+
+This means the frontend automatically upgrades to real execution as adapters are deployed — no further frontend changes needed per adapter.
+
+---
+
+#### All contract tests pass
+
+```
+MeridianRouterTest:      27 passed, 0 failed
+MeridianStrategyNFTTest: 23 passed, 0 failed
+(Fork tests: 2 failing — require live RPC, pre-existing, unrelated to this session)
+```
+
+---
+
+#### Open concerns and blockers
+
+**[!] Alchemy API quota exhausted**
+The shared Alchemy key (`REDACTED`) hit its monthly capacity limit mid-session. Cannot:
+- Run `forge script` with `--rpc-url $ETH_SEPOLIA_RPC_URL`
+- Do a live dry-run of `DeployAdapters.s.sol`
+- Redeploy the router with the fixed `_callAdapter`
+
+**Action required:** Top up Alchemy plan or rotate to a fresh API key. Until then, the adapter architecture is built but not yet live on Sepolia.
+
+**[!] Router must be redeployed**
+The existing Sepolia router (`0x0a2214F676ab38283ce180D1bd4FB114f26d6445`) has the old Phase-0 stubs. The `_callAdapter` fix is a logic change — the contract bytecode is different. A new deployment is required before adapters will work. The SETTLE-based fallback still works on the old router.
+
+**[!] Aave V3 Sepolia token compatibility**
+Aave V3 on Sepolia uses its own test tokens (available from Aave's faucet at `app.aave.com`). Circle's testnet USDC (`0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`) is **not confirmed** to be in the Aave V3 Sepolia reserve list. Before using the Aave adapter with USDC, verify that Circle testnet USDC is an approved Aave V3 Sepolia asset. If it isn't, the `pool.supply()` call will revert. Options:
+  - Use WETH instead of USDC for the first adapter test.
+  - Get Aave test tokens from their faucet and use those.
+  - Build a mock adapter first to test the architecture without Aave.
+
+**[~] Backend route optimizer returns wrong addresses**
+The backend's `RouteStep.protocolAddress` contains raw protocol contract addresses (e.g., Aave V3 Pool on mainnet). The frontend now ignores `protocolAddress` and instead looks up the adapter address by `s.protocol` (the protocol **name** string, e.g. `"Aave V3"`). This works for now but is fragile — if the backend changes the protocol name string, the lookup breaks silently (falls back to SETTLE). Long term, the backend should return adapter addresses directly.
+
+**[ ] More adapters needed for full real execution**
+The following protocols appear in optimizer routes but have no adapter yet:
+- UniswapV3SwapAdapter (SWAP steps)
+- AcrossBridgeAdapter (BRIDGE steps — special: needs to call Across SpokePool and emit event for relayer to watch)
+- StargateAdapter (BRIDGE)
+- CompoundV3LendAdapter (LEND)
+- GMXStakeAdapter (STAKE)
+
+The BRIDGE adapters are significantly more complex — they need to interact with the bridge protocol AND the relayer needs to watch for the corresponding destination-chain confirmation event.
+
+**[ ] Gas estimation for real adapter calls**
+The current frontend hardcodes `gas: 500_000n` on `executeStrategy`. Real adapter calls (especially Aave supply) will use more gas than SETTLE. Need to measure actual gas costs and either raise the cap or use dynamic estimation.
+
+---
+
+#### Deployment checklist (do when Alchemy quota resets)
+
+```bash
+cd contracts
+
+# Step 1 — Redeploy the router (callAdapter logic changed)
+source .env
+forge script src/Deploy.s.sol:Deploy \
+  --rpc-url $ETH_SEPOLIA_RPC_URL \
+  --broadcast --verify \
+  --etherscan-api-key $ETHERSCAN_API_KEY \
+  -vvv
+
+# Step 2 — Update ROUTER_ADDRESS in contracts/.env to the new address
+# Step 3 — Update frontend/.env.local NEXT_PUBLIC_ROUTER_ADDRESS_SEPOLIA
+
+# Step 4 — Deploy AaveV3LendAdapter and approve in router
+forge script script/DeployAdapters.s.sol:DeployAdapters \
+  --rpc-url $ETH_SEPOLIA_RPC_URL \
+  --broadcast --verify \
+  --etherscan-api-key $ETHERSCAN_API_KEY \
+  -vvv
+# Printed: "AaveV3LendAdapter deployed: 0x..."
+
+# Step 5 — Paste that address into frontend/src/lib/contracts.ts:
+# ADAPTER_ADDRESSES['Aave V3'][11155111] = '0x<address>'
+```
+
+---
+
+### 2026-06-08/09 — Sepolia E2E: executeStrategy fully verified
+
+**Context:** Getting the first real on-chain `executeStrategy` call to work on Sepolia testnet (not Anvil). This was a multi-session effort that surfaced several issues that are worth permanently documenting.
+
+---
+
+#### Issues found and fixed
+
+**ETHAmountMismatch revert**
+`contracts.ts` had no USDC entry for Sepolia (11155111) or Base Sepolia (84532). The `srcAssetAddr` fell back to `address(0)` which caused the router to treat USDC as ETH, then `msg.value != strategy.sourceAmount` triggered `ETHAmountMismatch`.
+- **Fix:** Added `11155111: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'` and `84532: '0x036CbD53842c5426634e7929541eC2318f3dCF7e'` to `TOKEN_ADDRESSES.USDC` in `contracts.ts`.
+
+**No ERC-20 approval**
+Frontend called `executeStrategy` directly without checking or requesting USDC allowance. The router's `safeTransferFrom` then failed with `ERC20InsufficientAllowance`.
+- **Fix:** Added allowance check → `approve()` tx → receipt polling loop (2s interval, 120s timeout) before `executeStrategy`.
+
+**ProtocolNotApproved revert**
+The backend route optimizer returns real mainnet protocol names/addresses (Aave V3, Across). None of these are in the deployed router's `approvedProtocols` mapping (it starts empty). Any step with a non-zero protocol address reverted.
+- **Fix:** Mapped all on-chain steps to `STEP_TYPE.SETTLE` (pass-through). SETTLE steps skip the `approvedProtocols` check — the router just transfers the working amount to the destination wallet. This was always the plan for testnet while adapters are being built, but the mapping wasn't in place.
+- **Note:** This is why the session above built the adapter layer — so SETTLE is no longer the only option.
+
+**Gas limit too high rejection**
+MetaMask rejected the `executeStrategy` tx with "gas limit too high." Cause: when `eth_estimateGas` is called on a tx that would revert (e.g., due to `ProtocolNotApproved`), Ethereum nodes return the block gas limit. MetaMask capped the user-visible gas well below that.
+- **Fix:** Added `gas: 500_000n` explicit cap on the `writeContract` call. After fixing the revert root cause, 500k gas is more than enough.
+
+**Execution page stuck in "in progress" forever**
+`simulateExecution` (the backend path for SETTLE-only strategies) advances the execution registry via `setTimeout` callbacks, but doesn't emit WebSocket events. The frontend's `ExecutionPage.tsx` only started polling after the WebSocket closed — so it never detected completion.
+- **Fix:** Moved `startPolling()` to run unconditionally on mount, before attempting to open the WebSocket. WebSocket still runs on top for real-time relayer updates (BRIDGE strategies).
+
+**Wrong-chain continueStrategy**
+For strategies with BRIDGE steps, the relayer's `checkBridgeConfirmation` was looking up the tx receipt on `job.destinationChain` (Base Sepolia). But the `executeStrategy` tx was submitted on `job.sourceChain` (Sepolia). Receipt lookup failed → bridge never confirmed → strategy stuck.
+- **Fix:** Changed `checkBridgeConfirmation` to use `job.sourceChain` (with `job.destinationChain` as fallback if `sourceChain` not set).
+
+**hasBridgeStep guard missing**
+Backend was always calling `submitMonitorJob` even for SETTLE-only strategies. The relayer then watched for a bridge confirmation that would never come.
+- **Fix:** Added `const hasBridgeStep = rawSteps.some(s => s.stepType === 2)`. Only call `submitMonitorJob` when a real BRIDGE step is present; otherwise call `simulateExecution`.
+
+**MetaMask showing 0 SepoliaETH despite 0.119 ETH on-chain**
+MetaMask's balance cache was stale. The deployer account showed 0 balance in the MetaMask UI even though Etherscan confirmed 0.119 ETH. Needed to wait for MetaMask to resync or switch accounts and back.
+- **Concern:** This is a MetaMask UX issue, not our bug. But it caused confusion during testing. Add a note in the UI that MetaMask balances may be stale; link to Etherscan for the definitive balance.
+
+**Blockaid security scanner graying out MetaMask tx**
+MetaMask's Blockaid scanner temporarily blocked the USDC approval tx — the "Review alert" button was grayed out for ~15 seconds while the security scan ran. This is MetaMask's risk scanner checking an unknown contract address.
+- **Concern:** New contract deployments always hit this. Users need to know to wait for the scan to complete. The Blockaid delay will go away after the contract gains a reputation on their system. No code fix needed; document in onboarding UX.
+
+**tsx watch mode broken**
+`npm run dev` in `/backend` used `tsx watch src/index.ts`. With tsx v4.22.3 in pnpm, the `watch` subcommand fails to resolve. Backend must be started without watch mode.
+- **Fix:** Start command: `node "/path/to/.pnpm/tsx@4.22.3/.../cli.mjs" --env-file=.env src/index.ts` from the `backend/` directory.
+
+**Pelagus wallet hijacking window.ethereum**
+`wagmi.ts` had `multiInjectedProviderDiscovery: false`. With this off, Pelagus (a Harmony wallet extension) was overwriting `window.ethereum` and intercepting all wallet connections.
+- **Fix:** Set `multiInjectedProviderDiscovery: true` (EIP-6963). Wagmi now uses the EIP-6963 provider discovery mechanism and MetaMask is correctly identified as a separate provider.
+
+---
+
+#### E2E result — verified 2026-06-09
+
+Full flow confirmed working on Sepolia (chain 11155111):
+1. Frontend detects USDC balance and constructs `srcAmountRaw` correctly.
+2. USDC allowance check → `approve(router, amount)` tx submitted → confirmed on-chain.
+3. `executeStrategy` called with 1 SETTLE step → tx submitted with `gas: 500_000n`.
+4. Receipt polled → `StrategyStarted` decoded → `strategyId` extracted from logs.
+5. Backend `POST /strategy/execute` called → execution registered → `simulateExecution` started.
+6. `ExecutionPage` polls every 3s → steps advance → "Strategy complete. Assets delivered to destination wallet."
+7. USDC transferred from user → router → destination wallet (same address in the test run). Confirmed on Sepolia Etherscan.
+
+**Deployed addresses (Sepolia, chain 11155111, 2026-06-08):**
+- `MeridianRouter:          0x0a2214F676ab38283ce180D1bd4FB114f26d6445`
+- `MeridianStrategyRegistry: 0xDd4F6eAE7DEA51d2AfaA2ee7E163a9D9f56476f0`
+- `MeridianVault:           0x17e280Ad5c8b73A0B719F2DFe5a3ADCEd123d754`
+- Relayer:                   `0xFeb864d3a2d32BB06393d0A1614814f3Eb8b2b8D`
+- Deployer:                  `0xe94ae3f7e542469bc623941f252ce7813c6053a5`
+
+---
+
 ## Table of Contents
 
 1. [Phase 0 — Foundation](#phase-0--foundation-month-12)
@@ -723,7 +958,7 @@
 - [x] Transaction status polling works (detect confirmation on destination chain) — `BridgeListenerService` watchContractEvent + `bridge-listener.test.ts`
 - [x] Failure handling: what happens if bridge TX gets stuck — stale quote flagged (isStale=true after 60s TTL), emergencyExit available to user, relayer retries with exponential backoff
 - [x] Asset limits: min/max transfer amounts — getBridgeQuote returns null for unsupported asset/route (tested)
-- [ ] Actual on-chain integration test (testnet) — requires funded testnet wallet + live bridge
+- [~] Actual on-chain integration test (testnet) — AcrossBridgeAdapter not yet built; BRIDGE relayer flow verified via e2e-bridge-relay.ts script (2026-06-08) but requires continueStrategy on same chain as executeStrategy
 
 ### DEXes
 
@@ -739,7 +974,7 @@
 - [x] Swap quote accurate (compare to UI) — `protocol-verification.test.ts`: swap quote has required fields, stale detection, null for unsupported pairs
 - [x] `minOutput` slippage protection enforced in contract call — tested in `MeridianRouter.t.sol` (revertIf_unapprovedProtocol path); pathfinder prunes edges exceeding `riskTolerance × 100 bps`
 - [x] Liquidity check: minimum $50k TVL on pool before routing through — pathfinder skips `targetNode.tvlUsd < 50_000`; tested in `protocol-verification.test.ts`
-- [ ] Actual testnet swap test — requires funded testnet wallet + live DEX
+- [~] Actual testnet swap test — UniswapV3SwapAdapter not yet built; Alchemy quota exhausted (2026-06-09)
 
 ### Lending Protocols
 
@@ -754,7 +989,7 @@
 - [x] Borrow against collateral at correct LTV — riskScore composite includes borrow APY; liquidation risk surfaced in simulation response
 - [x] Liquidation risk correct at 60% LTV — simulation service returns `liquidationRiskBps`; risk modal gates execution at score ≥ 40
 - [x] APY data matches on-chain rate — `protocol-verification.test.ts`: borrow APY ≥ supply APY, all pools have positive TVL, Aave USDC quote retrievable
-- [ ] Testnet integration test — requires funded testnet wallet + live Aave
+- [~] Testnet integration test — AaveV3LendAdapter built (2026-06-09); pending router redeploy + Alchemy quota reset. Circle testnet USDC compatibility with Aave V3 Sepolia unverified.
 
 ### Yield Protocols
 
@@ -769,7 +1004,7 @@
 - [x] Deposit and stake correctly — STAKE step handled by `_executeStake` in router; graph nodes seeded for GMX/Pendle/Convex
 - [x] Yield accrual correct and measurable — APY data polled from GMX stats API + Pendle REST + Convex API; seeded in strategy graph
 - [x] Withdrawal path exists (can unwind position) — `emergencyExit` returns `currentAmount` of `currentAsset` regardless of step type
-- [ ] Testnet integration test — requires funded testnet wallet + live staking protocol
+- [~] Testnet integration test — GMX/PendleStakeAdapter not yet built; architecture ready via IProtocolAdapter (2026-06-09)
 
 ### Quote Aggregators
 
@@ -866,7 +1101,7 @@
 - [ ] QuickNode account set up — backup RPC per chain
 - [x] Per-chain WebSocket endpoints configured for relayer event listeners (rpcTransport wss:// via Alchemy)
 - [x] RPC failover: auto-switch to QuickNode if Alchemy is down (rpcTransport fallback() transport, *_RPC_URL_FALLBACK env vars)
-- [ ] Rate limit monitoring: alert if approaching Alchemy request limits
+- [!] Rate limit monitoring: Alchemy key `REDACTED` hit monthly capacity 2026-06-09. **Action: upgrade plan or rotate key.** Add quota monitoring alert so this doesn't block dev work again.
 
 ### Hosting
 
@@ -880,6 +1115,7 @@
 ### Contract Deployment & Management
 
 - [x] Deployment scripts: Foundry deploy scripts for all 9 chains (Deploy.s.sol, DeployBase.s.sol, DeployOptimism.s.sol, DeployAvalanche.s.sol, DeployScroll.s.sol, DeployZkSync.s.sol) — Hardhat not used (Foundry preferred)
+- [x] `script/DeployAdapters.s.sol` — deploys protocol adapters (AaveV3LendAdapter) and approves them in the router in one broadcast (2026-06-09)
 - [x] Deployment manifest: `contracts/deployments.json` — tracks address, deployer, blockNumber, txHash, deployedAt, verified per contract per chain (testnet filled; mainnet placeholders ready)
 - [ ] Verify on Etherscan (and equivalents per chain) after every deployment
 - [ ] Multisig: Gnosis Safe for any admin/upgrade operations

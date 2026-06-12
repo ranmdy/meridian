@@ -7,28 +7,52 @@
       "explorer": "https://sepolia.etherscan.io",
       "contracts": {
         "MeridianRouter": {
-          "address": "0x0a2214F676ab38283ce180D1bd4FB114f26d6445",
+          "address": "0x2871506ADE1cA3cB4F6E86CEA4e3f1CDA820A94c",
           "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
           "blockNumber": 0,
-          "txHash": "0xc9d8277329b58bb2a4a6fbf4866079623f072ab42d3c158914f16087990a642a",
-          "deployedAt": "2026-06-08",
-          "verified": false
+          "txHash": "",
+          "deployedAt": "2026-06-11",
+          "verified": true
         },
         "MeridianStrategyRegistry": {
-          "address": "0xDd4F6eAE7DEA51d2AfaA2ee7E163a9D9f56476f0",
+          "address": "0x2453b3533fC6660988E011cCfD02F5795b9558ED",
           "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
           "blockNumber": 0,
-          "txHash": "0x0621dc0376802fbdd8acc83a3803a6b13a83c175459ee3a82610d053e662cd66",
-          "deployedAt": "2026-06-08",
+          "txHash": "",
+          "deployedAt": "2026-06-11",
           "verified": false
         },
         "MeridianVault": {
-          "address": "0x17e280Ad5c8b73A0B719F2DFe5a3ADCEd123d754",
+          "address": "0x91886fed2398383C62Bebe3360a3c2C4407aD461",
           "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
           "blockNumber": 0,
-          "txHash": "0x40a6697b54fc53f9f7e875037facc4e54f1af59f53e1fcf6e326a054dc5a34dc",
-          "deployedAt": "2026-06-08",
+          "txHash": "",
+          "deployedAt": "2026-06-11",
           "verified": false
+        },
+        "AaveV3LendAdapter": {
+          "address": "0x37D4fdBfBa638E82e5A9798EEd635161710153BA",
+          "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
+          "blockNumber": 0,
+          "txHash": "",
+          "deployedAt": "2026-06-11",
+          "verified": true
+        },
+        "UniswapV3SwapAdapter": {
+          "address": "0xF7Bd43ccd4b621784fec8Af1d3e243C846D1D4e8",
+          "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
+          "blockNumber": 0,
+          "txHash": "",
+          "deployedAt": "2026-06-11",
+          "verified": true
+        },
+        "AcrossBridgeAdapter": {
+          "address": "0x9A7fF88a6f6337D3A2F91C1a3f1098ebFC3f89F0",
+          "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
+          "blockNumber": 0,
+          "txHash": "",
+          "deployedAt": "2026-06-11",
+          "verified": true
         }
       }
     },
@@ -38,27 +62,43 @@
       "explorer": "https://sepolia.basescan.org",
       "contracts": {
         "MeridianRouter": {
-          "address": "0x4a822882689941B2478Fd548AE3a1559Ab000b06",
+          "address": "0x4DCAD84159755062c9384c9Cb7d515adCF0Bc314",
           "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
-          "blockNumber": 42291052,
-          "txHash": "0x797abc18c7270224f113cb9ed69a22f0cfed77c3aef67b91843e3f8d3ae5146c",
-          "deployedAt": "2026-06-01",
+          "blockNumber": 0,
+          "txHash": "",
+          "deployedAt": "2026-06-11",
           "verified": false
         },
         "MeridianStrategyRegistry": {
-          "address": "0x9D77c4Af9e76C419672cd25d0C73DDD75d0235D3",
+          "address": "0x7F485cF5AFD8CEa4aC9f896A8206B12697CdE7D3",
           "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
-          "blockNumber": 42291053,
-          "txHash": "0xd451dea7145b34941b5d35cd2062802ad271a52974aa8bec334badd6c5aaf4b0",
-          "deployedAt": "2026-06-01",
+          "blockNumber": 0,
+          "txHash": "",
+          "deployedAt": "2026-06-11",
           "verified": false
         },
         "MeridianVault": {
-          "address": "0x7CCC7B386573c4b988446482cb9aB3609c14f8Aa",
+          "address": "0x0a2214F676ab38283ce180D1bd4FB114f26d6445",
           "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
-          "blockNumber": 42291054,
-          "txHash": "0x6161ca3eea353270c3e9adf09a6483d51f3fc51d9f9c48ddf0c363ed0eaab3e1",
-          "deployedAt": "2026-06-01",
+          "blockNumber": 0,
+          "txHash": "",
+          "deployedAt": "2026-06-11",
+          "verified": false
+        },
+        "UniswapV3SwapAdapter": {
+          "address": "0xB19208BBb71037DCe838abC18aD973dBD3CE238E",
+          "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
+          "blockNumber": 0,
+          "txHash": "",
+          "deployedAt": "2026-06-11",
+          "verified": false
+        },
+        "AcrossBridgeAdapter": {
+          "address": "0x4859a9648894cE9b2094d8cC7b530c26864d29A2",
+          "deployer": "0xe94ae3f7e542469bc623941f252ce7813c6053a5",
+          "blockNumber": 0,
+          "txHash": "",
+          "deployedAt": "2026-06-11",
           "verified": false
         }
       }

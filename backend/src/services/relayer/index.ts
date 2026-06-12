@@ -436,11 +436,20 @@ export class RelayerManager {
       job.bridgedAmount = amountOut;
     }
 
-    // Allow 2 seconds for chain finality before calling continueStrategy.
-    // Re-lookup from map at fire time to pick up any steps registered by
-    // submitMonitorJob between when the event fired and now.
+    // Allow 2 seconds for chain finality and for submitMonitorJob to register
+    // the real steps before calling continueStrategy.
     setTimeout(() => {
       const latest = this.jobs.get(jobId) ?? job;
+      if (latest.steps.length === 0) {
+        console.warn(
+          `[Relayer] Deferring continueStrategy for ${jobId} — steps not yet registered. ` +
+          'Waiting for POST /strategy/execute with onChainSteps.',
+        );
+        latest.status = 'pending'; // will be picked up by processPending poll
+        latest.updatedAt = Date.now();
+        this.notify(latest.strategyId, latest);
+        return;
+      }
       this.callContinueStrategy(latest, stepIndex + 1).catch((err) =>
         this.handleJobError(latest, err instanceof Error ? err.message : String(err)),
       );

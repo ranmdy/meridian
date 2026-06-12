@@ -586,7 +586,7 @@ export class QuoteEngine {
   private async fetchCurveSwapQuotes(now: number) {
     // Curve uses its own router API: GET /api/getExchangeAmount?network=ethereum&...
     // We'll query the canonical pools for stablecoin swaps
-    const CURVE_STABLESWAP_3POOL = '0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7';
+    // Curve 3pool address: 0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7
 
     // For Curve, we simulate USDC ↔ USDT on Ethereum 3pool
     // Amount: 1,000,000 USDC (6 decimals)
@@ -931,7 +931,7 @@ export class QuoteEngine {
   private async fetchGmxApy(now: number) {
     try {
       // GMX v2 markets include GM pools with APR; v1 GLP APR from stats
-      const res = await fetch('https://arbitrum.api.0xsquid.com/v1/token-price?chainId=42161&tokenAddress=0x4277f8F2c384827B5273592FF7CeBd9f2C1ac258', {
+      await fetch('https://arbitrum.api.0xsquid.com/v1/token-price?chainId=42161&tokenAddress=0x4277f8F2c384827B5273592FF7CeBd9f2C1ac258', {
         headers: { 'Accept': 'application/json' },
         signal: AbortSignal.timeout(8_000),
       });

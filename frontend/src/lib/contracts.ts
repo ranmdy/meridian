@@ -156,3 +156,54 @@ const ROUTER_ADDRESSES: Record<number, `0x${string}`> = {
 export function getRouterAddress(chainId: number): `0x${string}` {
   return ROUTER_ADDRESSES[chainId] ?? ROUTER_ADDRESS;
 }
+
+// ─── Protocol Adapter addresses ──────────────────────────────────────────────
+//
+// Maps: protocol name (as returned by backend RouteStep.protocol)
+//        → chain ID
+//        → deployed adapter contract address
+//
+// When a step's protocol name matches an entry here the frontend uses the real
+// step type (LEND/SWAP/STAKE) with the adapter address.
+// Any step whose protocol has no adapter entry falls back to SETTLE so it still
+// executes as a pass-through on the current router deployment.
+//
+// Add entries here after deploying new adapters with DeployAdapters.s.sol.
+// Keys MUST match the protocol name strings returned by the backend route
+// optimizer (snake_case): 'aave_v3', 'uniswap_v3', 'compound_v3', etc.
+// See backend/src/services/strategy-engine/graph.ts for the canonical names.
+export const ADAPTER_ADDRESSES: Record<string, Partial<Record<number, `0x${string}`>>> = {
+  'aave_v3': {
+    11155111: '0x37D4fdBfBa638E82e5A9798EEd635161710153BA',
+  },
+  'uniswap_v3': {
+    11155111: '0xF7Bd43ccd4b621784fec8Af1d3e243C846D1D4e8',
+    84532:    '0xB19208BBb71037DCe838abC18aD973dBD3CE238E',
+  },
+  'across': {
+    11155111: '0x9A7fF88a6f6337D3A2F91C1a3f1098ebFC3f89F0',
+    84532:    '0x4859a9648894cE9b2094d8cC7b530c26864d29A2',
+  },
+};
+
+// Token addresses on destination chains (needed for bridge outputToken param).
+// Keys are "symbol:chainId" — maps to the token address on that destination chain.
+// The bridge adapter needs to know what token to expect on the other side.
+export const DESTINATION_TOKEN_ADDRESSES: Record<string, Record<number, `0x${string}`>> = {
+  USDC: {
+    11155111: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+    84532:    '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+    1:        '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+    8453:     '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    42161:    '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+  },
+};
+
+/// @returns The adapter address for a protocol on the given chain, or null if
+///          no adapter is deployed yet (caller should fall back to SETTLE).
+export function getAdapterAddress(
+  protocolName: string,
+  chainId: number,
+): `0x${string}` | null {
+  return ADAPTER_ADDRESSES[protocolName]?.[chainId] ?? null;
+}

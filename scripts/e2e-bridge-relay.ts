@@ -30,7 +30,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 
 const PRIVATE_KEY     = process.env.PRIVATE_KEY as `0x${string}`;
 const RPC_URL         = process.env.ETH_SEPOLIA_RPC_URL as string;
-const ROUTER_ADDRESS  = '0x0a2214F676ab38283ce180D1bd4FB114f26d6445' as const;
+const ROUTER_ADDRESS  = '0x2871506ADE1cA3cB4F6E86CEA4e3f1CDA820A94c' as const;
 const BACKEND_URL     = process.env.BACKEND_URL ?? 'http://localhost:3001';
 const SEND_AMOUNT     = parseEther('0.001');
 const CHAIN_ID        = 11155111;

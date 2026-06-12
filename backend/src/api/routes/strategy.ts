@@ -5,7 +5,7 @@ import type { StrategyEngine } from '../../services/strategy-engine/index.js';
 import type { QuoteEngine } from '../../services/quote-engine/index.js';
 import { SimulationService } from '../../services/simulation/index.js';
 import { tieredRateLimit } from '../../services/rateLimit/index.js';
-import { requireAuth, requireTier } from './auth.js';
+import { requireAuth } from './auth.js';
 
 const simulationService = new SimulationService();
 

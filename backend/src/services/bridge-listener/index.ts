@@ -25,7 +25,7 @@
 import { createPublicClient, type PublicClient, type Abi } from 'viem';
 import { rpcTransport } from '../rpc-transport/index.js';
 import { config } from '../../config/index.js';
-import { mainnet, arbitrum, base, optimism, polygon, bsc, avalanche, scroll, zkSync } from 'viem/chains';
+import { mainnet, arbitrum, base, optimism, polygon, bsc, avalanche, scroll, zkSync, sepolia, baseSepolia } from 'viem/chains';
 import { EventEmitter } from 'node:events';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -50,15 +50,17 @@ export type FillCallback = (event: BridgeFillEvent) => void;
 // ─── Across v3 SpokePool addresses per chain ──────────────────────────────────
 
 const ACROSS_SPOKE_POOLS: Partial<Record<number, `0x${string}`>> = {
-  1:      '0x5c7BCd6E7De5423a257D81B442095A1a6ced35C5',
-  42161:  '0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A',
-  8453:   '0x09aea4b2242abC8bb4BB78D537A67a245A7bEC64',
-  10:     '0x6f26Bf09B1C792e3228e5467807a900A503c0281',
-  137:    '0x9295ee1d8C5b022Be115A2AD3c30C72E34e7F096',
-  56:     '0x7f55C57dC42AFAaEC18bEF8DaDD78cf064e49059',
-  43114:  '0x9295ee1d8C5b022Be115A2AD3c30C72E34e7F096',
-  534352: '0x3baD7AD0728f9917d1Bf08af5782dCbD516cDd96',
-  324:    '0xE0B015E54d54fc84a6cB9B666099c46adE9335FF',
+  1:        '0x5c7BCd6E7De5423a257D81B442095A1a6ced35C5',
+  42161:    '0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A',
+  8453:     '0x09aea4b2242abC8bb4BB78D537A67a245A7bEC64',
+  10:       '0x6f26Bf09B1C792e3228e5467807a900A503c0281',
+  137:      '0x9295ee1d8C5b022Be115A2AD3c30C72E34e7F096',
+  56:       '0x7f55C57dC42AFAaEC18bEF8DaDD78cf064e49059',
+  43114:    '0x9295ee1d8C5b022Be115A2AD3c30C72E34e7F096',
+  534352:   '0x3baD7AD0728f9917d1Bf08af5782dCbD516cDd96',
+  324:      '0xE0B015E54d54fc84a6cB9B666099c46adE9335FF',
+  11155111: '0x5ef6C01E11889d86803e0573e9cC7f207D5a5AC3', // Sepolia
+  84532:    '0x82B564983aE7274c86695917BBf8C99ECb6F0F8F', // Base Sepolia
 };
 
 // ─── Stargate v2 Pool addresses per chain (USDC pool as representative) ───────
@@ -116,15 +118,17 @@ const STARGATE_ABI = [
 // starts with wss:// — enabling real-time push events instead of polling.
 
 const CHAIN_CONFIG = [
-  { chain: mainnet,   id: 1,      rpcCfg: config.chains.ethereum  },
-  { chain: arbitrum,  id: 42161,  rpcCfg: config.chains.arbitrum  },
-  { chain: base,      id: 8453,   rpcCfg: config.chains.base      },
-  { chain: optimism,  id: 10,     rpcCfg: config.chains.optimism  },
-  { chain: polygon,   id: 137,    rpcCfg: config.chains.polygon   },
-  { chain: bsc,       id: 56,     rpcCfg: config.chains.bnb       },
-  { chain: avalanche, id: 43114,  rpcCfg: config.chains.avalanche },
-  { chain: scroll,    id: 534352, rpcCfg: config.chains.scroll    },
-  { chain: zkSync,    id: 324,    rpcCfg: config.chains.zkSync    },
+  { chain: mainnet,     id: 1,        rpcCfg: config.chains.ethereum  },
+  { chain: arbitrum,    id: 42161,    rpcCfg: config.chains.arbitrum  },
+  { chain: base,        id: 8453,     rpcCfg: config.chains.base      },
+  { chain: optimism,    id: 10,       rpcCfg: config.chains.optimism  },
+  { chain: polygon,     id: 137,      rpcCfg: config.chains.polygon   },
+  { chain: bsc,         id: 56,       rpcCfg: config.chains.bnb       },
+  { chain: avalanche,   id: 43114,    rpcCfg: config.chains.avalanche },
+  { chain: scroll,      id: 534352,   rpcCfg: config.chains.scroll    },
+  { chain: zkSync,      id: 324,      rpcCfg: config.chains.zkSync    },
+  { chain: sepolia,     id: 11155111, rpcCfg: { rpcUrl: process.env.ETH_SEPOLIA_RPC_URL ?? '', fallbackRpcUrl: '' } },
+  { chain: baseSepolia, id: 84532,    rpcCfg: { rpcUrl: process.env.BASE_SEPOLIA_RPC_URL ?? '', fallbackRpcUrl: '' } },
 ] as const;
 
 // ─── Service ──────────────────────────────────────────────────────────────────

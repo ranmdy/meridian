@@ -2,6 +2,16 @@
 
 import type { ExecutionStatus, StepStatus } from '@/src/lib/api';
 
+const EXPLORER: Record<number, string> = {
+  1: 'https://etherscan.io/tx/', 8453: 'https://basescan.org/tx/',
+  42161: 'https://arbiscan.io/tx/', 56: 'https://bscscan.com/tx/',
+  137: 'https://polygonscan.com/tx/', 10: 'https://optimistic.etherscan.io/tx/',
+  43114: 'https://snowtrace.io/tx/', 534352: 'https://scrollscan.com/tx/',
+  324: 'https://explorer.zksync.io/tx/',
+  11155111: 'https://sepolia.etherscan.io/tx/',
+  84532: 'https://sepolia.basescan.org/tx/',
+};
+
 interface StepTrackerProps {
   status: ExecutionStatus;
 }
@@ -110,7 +120,7 @@ export function StepTracker({ status }: StepTrackerProps) {
                 <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-0.5">
                   {step.txHash && (
                     <a
-                      href={`https://etherscan.io/tx/${step.txHash}`}
+                      href={`${EXPLORER[step.chain ?? 1] ?? EXPLORER[1]}${step.txHash}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-xs text-blue-400 hover:text-blue-300 font-mono"

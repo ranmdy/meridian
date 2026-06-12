@@ -17,6 +17,8 @@ const EXPLORER: Record<number, string> = {
   137: 'https://polygonscan.com/tx/', 10: 'https://optimistic.etherscan.io/tx/',
   43114: 'https://snowtrace.io/tx/', 534352: 'https://scrollscan.com/tx/',
   324: 'https://explorer.zksync.io/tx/',
+  11155111: 'https://sepolia.etherscan.io/tx/',
+  84532: 'https://sepolia.basescan.org/tx/',
 };
 
 function fmtElapsed(secs: number): string {
@@ -38,6 +40,7 @@ function truncateTx(hash: string): string {
 const CHAIN_NAMES: Record<number, string> = {
   1: 'Ethereum', 8453: 'Base', 42161: 'Arbitrum', 137: 'Polygon',
   56: 'BNB', 10: 'Optimism', 43114: 'Avalanche', 534352: 'Scroll', 324: 'zkSync',
+  11155111: 'Sepolia', 84532: 'Base Sepolia',
 };
 
 function fmtProtocol(p: string): string {
@@ -331,10 +334,9 @@ export function ExecutionPage({ id }: { id: string }) {
           <div className="divide-y">
             {status.steps.map((s) => {
               const isStepLive = s.status === 'in_progress';
-              const txUrl = s.txHash && s.chain && EXPLORER[s.chain]
-                ? `${EXPLORER[s.chain]}${s.txHash}`
-                : s.txHash
-                ? `https://etherscan.io/tx/${s.txHash}`
+              const stepChainId = s.chain ?? routeSteps[s.index]?.fromChain;
+              const txUrl = s.txHash && stepChainId && EXPLORER[stepChainId]
+                ? `${EXPLORER[stepChainId]}${s.txHash}`
                 : null;
               const meta = routeSteps[s.index];
               const label = meta ? stepLabel(meta) : `Step ${s.index + 1}`;

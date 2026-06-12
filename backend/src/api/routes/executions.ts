@@ -6,40 +6,32 @@ import { listExecutionsByWallet } from '../../db/execution-store.js';
 import { getSubscription } from '../../services/stripe/index.js';
 import type { RelayerManager, OnChainStep } from '../../services/relayer/index.js';
 
+// ─── Step type constants (must match Solidity enum) ─────────────────────────
+const STEP_BRIDGE = 2;
+
 /**
- * Simulate execution progress for demo/testnet mode when no on-chain tx hash is provided.
- * Each step advances through in_progress → done with realistic delay (~8–15s per step).
+ * Resolve same-chain execution: all steps completed atomically in the initial
+ * executeStrategy tx. Mark every step done with the real tx hash.
+ *
+ * Same-chain = no BRIDGE steps, or all BRIDGE steps fell back to SETTLE.
  */
-function simulateExecution(strategyId: string, stepCount: number): void {
-  const STEP_DELAY_MS = 10_000; // 10s per step
+function resolveAtomicExecution(
+  strategyId: string,
+  stepCount: number,
+  initialTxHash: string,
+  sourceChain: number,
+): void {
+  const now = Math.floor(Date.now() / 1000);
 
-  const runStep = (stepIndex: number) => {
-    if (stepIndex >= stepCount) {
-      executionRegistry.complete(strategyId);
-      return;
-    }
-
-    // Mark step as in_progress
-    executionRegistry.updateStep(strategyId, stepIndex, 'in_progress', {
-      estimatedCompletionAt: Math.floor(Date.now() / 1000) + Math.ceil(STEP_DELAY_MS / 1000),
+  for (let i = 0; i < stepCount; i++) {
+    executionRegistry.updateStep(strategyId, i, 'done', {
+      txHash: initialTxHash,
+      chain: sourceChain,
+      completedAt: now,
     });
+  }
 
-    // After delay, mark done and advance
-    setTimeout(() => {
-      const fakeTxHash = `0x${Array.from({ length: 64 }, () =>
-        Math.floor(Math.random() * 16).toString(16)).join('')}` as `0x${string}`;
-
-      executionRegistry.updateStep(strategyId, stepIndex, 'done', {
-        txHash: fakeTxHash,
-        completedAt: Math.floor(Date.now() / 1000),
-      });
-
-      runStep(stepIndex + 1);
-    }, STEP_DELAY_MS);
-  };
-
-  // Small initial delay so the frontend has time to redirect and start polling
-  setTimeout(() => runStep(0), 2_000);
+  executionRegistry.complete(strategyId);
 }
 
 const ExecuteSchema = z.object({
@@ -116,24 +108,50 @@ export async function executionRoutes(
       ? 10
       : 0;
 
-    // Submit initial monitor job to relayer only when there are real BRIDGE steps.
-    // If all steps are SETTLE (testnet pass-through), the contract settles immediately
-    // on the source chain — no continueStrategy call needed.
+    // Check if this strategy has a real BRIDGE step (not a SETTLE fallback)
     const rawSteps = (parsed.data.onChainSteps ?? []);
-    const hasBridgeStep = rawSteps.some((s) => s.stepType === 2); // StepType.BRIDGE = 2
+    const hasBridgeStep = rawSteps.some((s) => s.stepType === STEP_BRIDGE);
 
     if (initialTxHash && hasBridgeStep) {
-      const steps: OnChainStep[] = rawSteps.map((s) => ({
-        stepType: s.stepType,
-        protocol: s.protocol as `0x${string}`,
-        params: s.params as `0x${string}`,
-        minOutput: BigInt(s.minOutput),
-        outputAsset: s.outputAsset as `0x${string}`,
-      }));
+      // ── Cross-chain: submit relayer monitor job ──────────────────────────
+      // The relayer watches for the bridge fill on the destination chain,
+      // then calls continueStrategy on the destination router.
+      let steps: OnChainStep[];
+      try {
+        steps = rawSteps.map((s) => ({
+          stepType: s.stepType,
+          protocol: s.protocol as `0x${string}`,
+          params: s.params as `0x${string}`,
+          minOutput: BigInt(s.minOutput),
+          outputAsset: s.outputAsset as `0x${string}`,
+        }));
+      } catch (err) {
+        return reply.status(400).send({
+          error: 'Invalid onChainSteps: minOutput must be a valid integer string',
+          details: (err as Error).message,
+        });
+      }
+
+      // Mark pre-bridge steps as done with the initial tx hash.
+      // Steps before the first BRIDGE executed atomically in executeStrategy.
+      const firstBridgeIdx = rawSteps.findIndex((s) => s.stepType === STEP_BRIDGE);
+      const now = Math.floor(Date.now() / 1000);
+      for (let i = 0; i < firstBridgeIdx; i++) {
+        executionRegistry.updateStep(strategyId, i, 'done', {
+          txHash: initialTxHash,
+          chain: sourceChain,
+          completedAt: now,
+        });
+      }
+      // Mark the bridge step as in_progress
+      executionRegistry.updateStep(strategyId, firstBridgeIdx, 'in_progress', {
+        txHash: initialTxHash,
+        chain: sourceChain,
+      });
 
       opts.relayerManager.submitMonitorJob(
         strategyId,
-        0,
+        firstBridgeIdx,
         initialTxHash,
         sourceChain,
         destinationChain,
@@ -141,10 +159,18 @@ export async function executionRoutes(
         relayerPriority,
         steps,
       );
+    } else if (initialTxHash) {
+      // ── Same-chain: all steps completed atomically ───────────────────────
+      // No BRIDGE steps — the entire strategy settled in the initial
+      // executeStrategy transaction. Mark all steps done with the real tx hash.
+      resolveAtomicExecution(strategyId, stepCount, initialTxHash, sourceChain);
     } else {
-      // No BRIDGE steps (or no tx hash): simulate execution progress so the
-      // tracking page shows realistic step advancement.
-      simulateExecution(strategyId, stepCount);
+      // ── No tx hash at all (should not happen in production) ──────────────
+      // Mark as failed — we can't track execution without a tx hash.
+      console.warn(
+        `[Executions] No initialTxHash for strategy=${strategyId}. Cannot track execution.`,
+      );
+      executionRegistry.fail(strategyId, 'No transaction hash provided — execution cannot be tracked');
     }
 
     return reply.status(201).send({

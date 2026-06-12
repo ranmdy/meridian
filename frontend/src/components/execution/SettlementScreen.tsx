@@ -8,15 +8,17 @@ import type { ExecutionStatus } from '@/src/lib/api';
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 const EXPLORER_URLS: Record<number, string> = {
-  1:      'https://etherscan.io/tx/',
-  8453:   'https://basescan.org/tx/',
-  42161:  'https://arbiscan.io/tx/',
-  56:     'https://bscscan.com/tx/',
-  137:    'https://polygonscan.com/tx/',
-  10:     'https://optimistic.etherscan.io/tx/',
-  43114:  'https://snowtrace.io/tx/',
-  534352: 'https://scrollscan.com/tx/',
-  324:    'https://explorer.zksync.io/tx/',
+  1:        'https://etherscan.io/tx/',
+  8453:     'https://basescan.org/tx/',
+  42161:    'https://arbiscan.io/tx/',
+  56:       'https://bscscan.com/tx/',
+  137:      'https://polygonscan.com/tx/',
+  10:       'https://optimistic.etherscan.io/tx/',
+  43114:    'https://snowtrace.io/tx/',
+  534352:   'https://scrollscan.com/tx/',
+  324:      'https://explorer.zksync.io/tx/',
+  11155111: 'https://sepolia.etherscan.io/tx/',
+  84532:    'https://sepolia.basescan.org/tx/',
 };
 
 interface Props {

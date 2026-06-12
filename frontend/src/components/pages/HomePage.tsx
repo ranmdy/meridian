@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAccount, useBalance, useSignMessage, useWriteContract, useChainId } from 'wagmi';
 import { encodePacked, keccak256, parseUnits, decodeEventLog } from 'viem';
+import { buildOnChainStep } from '@/src/hooks/useExecuteStrategy';
 import {
   Tag, PageHead, StepChain, KindBadge,
   Field, Segmented, RiskLevels, Spinner, Modal,
@@ -527,16 +528,15 @@ export function HomePage() {
         : (CONTRACT_TOKEN_ADDRESSES[srcAsset]?.[srcId] ?? ETH_ADDRESS as `0x${string}`);
 
       // ── Map route steps to on-chain format ────────────────────────────────
-      // Testnet: protocol adapters aren't deployed/approved. All steps use SETTLE
-      // (pass-through), so the contract immediately settles USDC to the destination
-      // wallet on the source chain — no bridge wait, no continueStrategy needed.
-      const onChainSteps = raw.steps.map(() => ({
-        stepType:    STEP_TYPE.SETTLE,
-        protocol:    ETH_ADDRESS as `0x${string}`,
-        params:      '0x' as `0x${string}`,
-        minOutput:   0n,
-        outputAsset: ETH_ADDRESS as `0x${string}`,
-      }));
+      // Uses buildOnChainStep to resolve adapter addresses, encode protocol-
+      // specific params, set outputAsset, and calculate minOutput with slippage.
+      const onChainSteps = raw.steps.map((s, i) => {
+        try {
+          return buildOnChainStep(s, srcId, decimals);
+        } catch (e) {
+          throw new Error(`Step ${i} (${s.stepType}/${s.protocol}) encoding failed: ${(e as Error).message}`);
+        }
+      });
 
       // ── ERC-20 approval if needed ──────────────────────────────────────────
       const provider = (window as unknown as { ethereum?: { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum;
@@ -547,7 +547,7 @@ export function HomePage() {
           method: 'eth_call',
           params: [{ to: srcAssetAddr, data: `0xdd62ed3e${ownerPadded}${spenderPadded}` }, 'latest'],
         }) as string;
-        const currentAllowance = BigInt(allowanceHex ?? '0x0');
+        const currentAllowance = BigInt((!allowanceHex || allowanceHex === '0x') ? '0' : allowanceHex);
         if (currentAllowance < srcAmountRaw) {
           const approveTxHash = await writeExecute({
             address: srcAssetAddr,
